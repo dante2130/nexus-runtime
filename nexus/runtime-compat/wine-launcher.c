@@ -44,14 +44,14 @@ static size_t rva(const unsigned char *p, size_t size, size_t sections, unsigned
     }
     return SIZE_MAX;
 }
-/* Fail closed: unknown exports/ordinals must not disappear behind a proxy. */
+/* 1: original SDK, 2: adapter. Unknown exports/ordinals remain unsupported. */
 static int sdk_contract(int fd)
 {
     struct stat st;
     unsigned char *p;
     size_t pe, optional, sections, exports, names, ordinals, functions;
     unsigned count, n;
-    int ok = 0;
+    int ok = 0, adapter = 0;
     if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size < 256 || st.st_size > 268435456) return 0;
     size_t size = (size_t)st.st_size;
     p = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
@@ -75,8 +75,17 @@ static int sdk_contract(int fd)
         size_t name = rva(p, size, sections, count, u32(p + names + i * 4), length);
         if (name == SIZE_MAX || memcmp(p + name, pgs_exports[i], length) ||
             u16(p + ordinals + i * 2) != i || !u32(p + functions + i * 4)) goto done;
+        /* A proxy has the same public exports as the SDK. Never preserve it
+         * as the original: its forwards would recursively load itself. */
+        uint32_t function = u32(p + functions + i * 4), start = u32(p + optional + 112);
+        if (function >= start && function - start < u32(p + optional + 116)) {
+            static const char prefix[] = "nexus_pgs_native.";
+            size_t forward = rva(p, size, sections, count, function, sizeof(prefix) - 1);
+            if (forward == SIZE_MAX) goto done;
+            if (!strncasecmp((const char *)p + forward, prefix, sizeof(prefix) - 1)) adapter = 1;
+        }
     }
-    ok = 1;
+    ok = adapter ? 2 : 1;
 done:
     munmap(p, size); return ok;
 }
@@ -160,13 +169,23 @@ static int visit(int directory, const char *path, int proxy, unsigned depth)
             if (asprintf(&sdkPath, "%s/%s", path, item->d_name) < 0) { result = -1; break; }
             int mapped = mapped_fd(getenv("WINE_DLL_FILE_MAP"), sdkPath);
             int source = mapped < 0 ? openat(directory, item->d_name, O_RDONLY | O_CLOEXEC | O_NONBLOCK) : mapped;
-            if (source >= 0 && sdk_contract(source)) {
-                int alias = openat(directory, "nexus_pgs_native.dll", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+            int contract = source >= 0 ? sdk_contract(source) : 0;
+            int adapter = contract == 2;
+            if (contract) {
+                /* Backend launch views link unchanged package files. Read
+                 * the owner's alias, then replace only the private link. */
+                int alias = openat(directory, "nexus_pgs_native.dll", O_RDONLY | O_NONBLOCK | O_CLOEXEC);
                 if (staged == 64) result = -1;
                 else if (alias >= 0) {
-                    int current = openat(directory, item->d_name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-                    if (!sdk_contract(alias) || current < 0 || !same_file(current, proxy)) result = -1;
+                    int current = openat(directory, item->d_name, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+                    if (sdk_contract(alias) != 1 || current < 0 || sdk_contract(current) != 2 ||
+                        (!adapter && !same_file(source, alias))) result = -1;
+                    else if (copy_fd(alias, directory, "nexus_pgs_native.dll") ||
+                        copy_fd(proxy, directory, item->d_name)) result = -1;
                     if (current >= 0) close(current);
+                } else if (adapter) {
+                    fprintf(stderr, "Nexus runtime: original PlayFab SDK is missing; restore the game's original PlayFabGameSave.dll before launching.\n");
+                    result = -1;
                 } else if (errno != ENOENT || copy_fd(source, directory, "nexus_pgs_native.dll") ||
                     copy_fd(proxy, directory, item->d_name)) result = -1;
                 if (alias >= 0) close(alias);
@@ -224,6 +243,92 @@ static int version_override(const char *binary, const char *loader)
     while (waitpid(child, &status, 0) < 0) if (errno != EINTR) return -1;
     return WIFEXITED(status) && !WEXITSTATUS(status) ? 0 : -1;
 }
+/* Find only the backend's owner-private launch view. Open each directory
+ * without following links, as for SDK staging. Installed files are read only. */
+static int registration(const char *binary, const char *loader, const char *target)
+{
+    char *view = strdup(target), *cursor;
+    int result = 0;
+    if (!view) return -1;
+    cursor = strrchr(view, '/');
+    while (cursor && cursor != view) {
+        *cursor = 0;
+        const char *base = strrchr(view, '/'); base = base ? base + 1 : view;
+        if (!strncmp(base, ".xodus-chain-", 13) || !strncmp(base, "xodus-chain-", 12)) {
+            char *parts = strdup(view + 1), *save = NULL;
+            int dir = open("/", O_DIRECTORY | O_CLOEXEC);
+            if (!parts) { result = -1; if (dir >= 0) close(dir); break; }
+            for (char *part = strtok_r(parts, "/", &save); part && dir >= 0; part = strtok_r(NULL, "/", &save)) {
+                int next = openat(dir, part, O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC); close(dir); dir = next;
+            }
+            free(parts);
+            struct stat st;
+            if (dir < 0 || fstat(dir, &st) || st.st_uid != geteuid() || (st.st_mode & 0022)) {
+                if (dir >= 0) close(dir);
+                break;
+            }
+            char xml[PATH_MAX], root[PATH_MAX], container[PATH_MAX], source[PATH_MAX];
+            char helper[PATH_MAX], name[80], rootNt[PATH_MAX + 3], containerNt[PATH_MAX + 3];
+            int lock = -1, input = -1;
+            if (snprintf(xml, sizeof(xml), "%s/appxmanifest.xml", view) >= (int)sizeof(xml)) result = -1;
+            else if (!realpath(xml, root)) {
+                if (errno != ENOENT) result = -1;
+            } else {
+                char *slash = strrchr(root, '/');
+                if (!slash || slash == root) result = -1;
+                else {
+                    *slash = 0;
+                    if (snprintf(container, sizeof(container), "%s/.xodus-streaming.msixvc", root) >= (int)sizeof(container)) result = -1;
+                    else if (stat(container, &st)) { if (errno != ENOENT) result = -1; }
+                    else if (!S_ISREG(st.st_mode)) result = -1;
+                    else {
+                        const char *prefix = getenv("WINEPREFIX");
+                        if (!prefix || prefix[0] != '/' || lstat(prefix, &st) || !S_ISDIR(st.st_mode) ||
+                            st.st_uid != geteuid() || (st.st_mode & 0022) || fchmod(dir, 0700)) result = -1;
+                        else {
+                            snprintf(name, sizeof(name), ".nexus-package-registration-%ld.exe", (long)getpid());
+                            if (snprintf(helper, sizeof(helper), "%s/%s", view, name) >= (int)sizeof(helper) ||
+                                snprintf(source, sizeof(source), "%s/../share/xodus-nexus/compat/package-registration.exe", binary) >= (int)sizeof(source)) result = -1;
+                            else {
+                                lock = openat(dir, ".nexus-registration-lock", O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0600);
+                                input = open(source, O_RDONLY | O_CLOEXEC);
+                                if (lock < 0 || input < 0 || flock(lock, LOCK_EX) ||
+                                    !fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) || errno != ENOENT || copy_fd(input, dir, name)) result = -1;
+                                else {
+                                    snprintf(rootNt, sizeof(rootNt), "Z:%s", root);
+                                    snprintf(containerNt, sizeof(containerNt), "Z:%s", container);
+                                    for (char *p = rootNt; *p; ++p) if (*p == '/') *p = '\\';
+                                    for (char *p = containerNt; *p; ++p) if (*p == '/') *p = '\\';
+                                    pid_t child = fork();
+                                    if (child < 0) result = -1;
+                                    else if (!child) {
+                                        unsetenv("WINE_DLL_FILE_MAP"); unsetenv("WINE_EXE_FILE_MAP");
+                                        unsetenv("XODUS_SOCKET"); unsetenv("XODUS_BRIDGE_KEY"); unsetenv("XODUS_BRIDGE_PORT");
+                                        execl(loader, loader, helper, "register-normal", rootNt, containerNt, (char *)NULL);
+                                        _exit(70);
+                                    } else {
+                                        int status, waited;
+                                        do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+                                        if (waited < 0 || !WIFEXITED(status) || WEXITSTATUS(status)) result = -1;
+                                    }
+                                    if (unlinkat(dir, name, 0)) result = -1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (input >= 0) close(input);
+            if (lock >= 0) close(lock);
+            close(dir);
+            break;
+        }
+        cursor = strrchr(view, '/');
+    }
+    free(view);
+    if (result) fprintf(stderr, "Nexus runtime: authenticated package registration failed; game was not started.\n");
+    return result;
+}
 int main(int argc, char **argv)
 {
     char binary[PATH_MAX], loader[PATH_MAX], proxyPath[PATH_MAX], *slash;
@@ -234,7 +339,7 @@ int main(int argc, char **argv)
         snprintf(proxyPath, sizeof(proxyPath), "%s/../share/xodus-nexus/compat/PlayFabGameSave.dll", binary) >= (int)sizeof(proxyPath)) return 70;
     struct stat executable;
     if (argc > 1 && argv[1][0] == '/' && !lstat(argv[1], &executable) && S_ISREG(executable.st_mode) &&
-        getenv("WINE_DLL_FILE_MAP") && version_override(binary, loader)) return 70;
+        getenv("WINE_DLL_FILE_MAP") && (registration(binary, loader, argv[1]) || version_override(binary, loader))) return 70;
     if (argc > 1 && argv[1][0] == '/' && !lstat(argv[1], &executable) && S_ISREG(executable.st_mode) &&
         getenv("WINE_DLL_FILE_MAP") && strcmp(getenv("NEXUS_PLAYFAB_ADAPTER") ? getenv("NEXUS_PLAYFAB_ADAPTER") : "", "0")) {
         char *view = strdup(argv[1]); if (!view) return 70;

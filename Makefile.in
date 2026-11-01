@@ -1632,6 +1632,7 @@ deploy: all
 redist: all
 	mkdir -p $(REDIST_DIR)
 	rsync --delete -arx $(DST_BASE)/ $(REDIST_DIR)
+	python3 "$(SRC)/nexus/runtime-dependencies.py" "$(REDIST_DIR)/files" --sdk "$(STEAMRT_IMAGE)"
 
 
 ##

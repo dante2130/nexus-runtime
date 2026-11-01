@@ -136,3 +136,106 @@ test('backend default 0755 view is sealed before SDK staging', async () => {
     assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), false);
   } finally { await f.close(); }
 });
+
+test('authenticated registration runs before target, clears maps only in child, removes its private helper', async () => {
+  const f = await fixture();
+  const original = path.join(path.dirname(loader), 'wine.nexus-original');
+  const bytes = await fs.readFile(original);
+  const installed = await fs.mkdtemp(path.join(root, 'installed-'));
+  const compat = path.join(path.dirname(loader), '../share/xodus-nexus/compat/package-registration.exe');
+  try {
+    await fs.writeFile(path.join(installed, 'appxmanifest.xml'), 'original manifest fixture');
+    await fs.writeFile(path.join(installed, '.xodus-streaming.msixvc'), 'original signed container fixture');
+    await fs.symlink(path.join(installed, 'appxmanifest.xml'), path.join(f.view, 'appxmanifest.xml'));
+    await fs.writeFile(compat, 'registrar fixture, executed by mock loader only');
+    await fs.writeFile(original, '#!/bin/sh\nif [ "$2" = "register-normal" ]; then\n  test -z "$WINE_DLL_FILE_MAP" && test -z "$WINE_EXE_FILE_MAP" && test -z "$XODUS_BRIDGE_KEY" || exit 72\n  printf "registration-first\n"\n  exit 0\nfi\nprintf "%s\n" "$WINE_DLL_FILE_MAP"\nexit 23\n');
+    const result = f.run({ WINEPREFIX: f.view, NEXUS_PLAYFAB_ADAPTER: '0', XODUS_BRIDGE_KEY: 'synthetic-only' });
+    assert.equal(result.status, 23, result.stderr);
+    assert.deepEqual(result.stdout.trimEnd().split('\n'), ['registration-first', f.env.WINE_DLL_FILE_MAP]);
+    assert.equal((await fs.readdir(f.view)).some(n => n.startsWith('.nexus-package-registration-')), false);
+    assert.equal(await fs.readFile(path.join(installed, 'appxmanifest.xml'), 'utf8'), 'original manifest fixture');
+    assert.equal(await fs.readFile(path.join(installed, '.xodus-streaming.msixvc'), 'utf8'), 'original signed container fixture');
+    await fs.writeFile(original, '#!/bin/sh\nif [ "$2" = "register-normal" ]; then exit 1; fi\nprintf "TARGET-MUST-NOT-RUN\n"\nexit 23\n');
+    const rejected = f.run({ WINEPREFIX: f.view, NEXUS_PLAYFAB_ADAPTER: '0' });
+    assert.equal(rejected.status, 70);
+    assert.doesNotMatch(rejected.stdout, /TARGET-MUST-NOT-RUN/);
+    assert.match(rejected.stderr, /authenticated package registration failed/);
+    assert.equal((await fs.readdir(f.view)).some(n => n.startsWith('.nexus-package-registration-')), false);
+    assert.equal(f.run({ WINEPREFIX: '', NEXUS_PLAYFAB_ADAPTER: '0' }).status, 70);
+  } finally { await fs.writeFile(original, bytes); await fs.rm(compat, { force: true }); await f.close(); }
+});
+
+
+test('manual adapter and linked original are materialized only inside the private view', async () => {
+  const f = await fixture();
+  try {
+    const originalBytes = await fs.readFile(sdk);
+    await fs.unlink(path.join(f.view, 'PlayFabGameSave.dll'));
+    await fs.symlink(path.join(components, 'PlayFabGameSave.dll'), path.join(f.view, 'PlayFabGameSave.dll'));
+    await fs.symlink(sdk, path.join(f.view, 'nexus_pgs_native.dll'));
+    const result = f.run({ WINE_DLL_FILE_MAP: '42:unrelated.dll', NEXUS_BOOTSTRAP_DIAGNOSTICS: '1' });
+    assert.equal(result.status, 23, result.stderr);
+    assert.match(result.stderr, /NEXUS_BOOTSTRAP sdk=1 appLocal=0/);
+    assert.deepEqual(await fs.readFile(path.join(f.view, 'nexus_pgs_native.dll')), originalBytes);
+    assert.equal((await fs.lstat(path.join(f.view, 'nexus_pgs_native.dll'))).isSymbolicLink(), false);
+    assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), false);
+    assert.deepEqual(await fs.readFile(sdk), originalBytes);
+    assert.equal(f.run({ WINE_DLL_FILE_MAP: '42:unrelated.dll' }).status, 23);
+  } finally { await f.close(); }
+});
+test('adapter without the original SDK fails before loader instead of aliasing itself', async () => {
+  const f = await fixture();
+  try {
+    await fs.unlink(path.join(f.view, 'PlayFabGameSave.dll'));
+    await fs.symlink(path.join(components, 'PlayFabGameSave.dll'), path.join(f.view, 'PlayFabGameSave.dll'));
+    const result = f.run({ WINE_DLL_FILE_MAP: '42:unrelated.dll' });
+    assert.equal(result.status, 70, result.stderr);
+    assert.equal(result.stdout, '', 'target loader was never started');
+    assert.match(result.stderr, /original PlayFab SDK/);
+    await assert.rejects(fs.access(path.join(f.view, 'nexus_pgs_native.dll')));
+    assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), true);
+  } finally { await f.close(); }
+});
+test('an adapter can never be accepted as its own original SDK', async () => {
+  const f = await fixture();
+  try {
+    await fs.unlink(path.join(f.view, 'PlayFabGameSave.dll'));
+    const proxy = path.join(components, 'PlayFabGameSave.dll');
+    await fs.copyFile(proxy, path.join(f.view, 'PlayFabGameSave.dll'));
+    await fs.copyFile(proxy, path.join(f.view, 'nexus_pgs_native.dll'));
+    const result = f.run({ WINE_DLL_FILE_MAP: '42:unrelated.dll' });
+    assert.equal(result.status, 70, result.stderr);
+    assert.equal(result.stdout, '');
+  } finally { await f.close(); }
+});
+
+
+test('a previous adapter build is refreshed from the preserved original without a file map', async () => {
+  const f = await fixture();
+  try {
+    const old = path.join(f.view, 'previous-adapter.dll');
+    const proxyBytes = await fs.readFile(path.join(components, 'PlayFabGameSave.dll'));
+    await fs.writeFile(old, Buffer.concat([proxyBytes, Buffer.from('previous build fixture')]));
+    await fs.unlink(path.join(f.view, 'PlayFabGameSave.dll'));
+    await fs.symlink(old, path.join(f.view, 'PlayFabGameSave.dll'));
+    await fs.symlink(sdk, path.join(f.view, 'nexus_pgs_native.dll'));
+    const result = f.run({ WINE_DLL_FILE_MAP: '42:unrelated.dll' });
+    assert.equal(result.status, 23, result.stderr);
+    assert.deepEqual(await fs.readFile(path.join(f.view, 'PlayFabGameSave.dll')), proxyBytes);
+    assert.deepEqual(await fs.readFile(old), Buffer.concat([proxyBytes, Buffer.from('previous build fixture')]));
+  } finally { await f.close(); }
+});
+test('a conflicting original SDK alias is retained and never selected over a different mapped SDK', async () => {
+  const f = await fixture();
+  try {
+    const alias = path.join(f.view, 'nexus_pgs_native.dll');
+    const conflicting = Buffer.concat([await fs.readFile(sdk), Buffer.from('different SDK fixture')]);
+    await fs.writeFile(alias, conflicting);
+    await fs.unlink(path.join(f.view, 'PlayFabGameSave.dll'));
+    await fs.copyFile(path.join(components, 'PlayFabGameSave.dll'), path.join(f.view, 'PlayFabGameSave.dll'));
+    const result = f.run();
+    assert.equal(result.status, 70, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.deepEqual(await fs.readFile(alias), conflicting);
+  } finally { await f.close(); }
+});
