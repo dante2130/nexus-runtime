@@ -54,6 +54,17 @@ server.on('request', (request, response) => {
       for (let offset = 0; offset < bytes.length; offset += 7) response.write(bytes.subarray(offset, offset + 7));
       response.end();
     } else send(200, bytes, { 'content-encoding': encoding });
+  } else if (request.url === '/fragmented-fill') {
+    response.writeHead(200, { 'content-length': body.length });
+    let offset = 0;
+    const write = () => {
+      if (response.destroyed) return;
+      if (offset < body.length) {
+        response.write(body.subarray(offset, offset + 437)); offset += 437;
+        setTimeout(write, 2);
+      } else response.end();
+    };
+    write();
   } else if (request.url === '/chunked') {
     response.writeHead(200, { 'content-type': 'application/octet-stream' });
     let offset = 0;
