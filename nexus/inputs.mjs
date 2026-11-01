@@ -32,7 +32,7 @@ export function validateInputs(inputs){
     for(const [name,value]of Object.entries(inputs.shader.expectedSources))if(!/^libs\/vkd3d-shader\/[a-z0-9.-]+$/.test(name)||!hash64(value))throw Error('Unsafe shader result input');
     if(inputs.fex?.file!=='patches/fex-overcommit-release-order.patch'||!hash40(inputs.fex.commit)||![inputs.fex.sha256,inputs.fex.originalSha256,inputs.fex.resultSha256].every(hash64))throw Error('Unpinned FEX source correction');
     const files=inputs.compatibilitySources;
-    if(!files||Object.keys(files).length!==6)throw Error('Missing compatibility sources');
+    if(!files||Object.keys(files).length!==7)throw Error('Missing compatibility sources');
     for(const [file,value]of Object.entries(files))if(!/^runtime-compat\/[a-z0-9.-]+$/.test(file)||!hash64(value))throw Error('Unsafe compatibility source');
     for(const value of [inputs.requiresBackendVersion,inputs.requiresLauncherVersion])if(!/^\d+\.\d+\.\d+$/.test(value))throw Error('Missing component version requirement');
 }

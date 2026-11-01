@@ -136,3 +136,31 @@ test('backend default 0755 view is sealed before SDK staging', async () => {
     assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), false);
   } finally { await f.close(); }
 });
+
+test('authenticated registration runs before target, clears maps only in child, removes its private helper', async () => {
+  const f = await fixture();
+  const original = path.join(path.dirname(loader), 'wine.nexus-original');
+  const bytes = await fs.readFile(original);
+  const installed = await fs.mkdtemp(path.join(root, 'installed-'));
+  const compat = path.join(path.dirname(loader), '../share/xodus-nexus/compat/package-registration.exe');
+  try {
+    await fs.writeFile(path.join(installed, 'appxmanifest.xml'), 'original manifest fixture');
+    await fs.writeFile(path.join(installed, '.xodus-streaming.msixvc'), 'original signed container fixture');
+    await fs.symlink(path.join(installed, 'appxmanifest.xml'), path.join(f.view, 'appxmanifest.xml'));
+    await fs.writeFile(compat, 'registrar fixture, executed by mock loader only');
+    await fs.writeFile(original, '#!/bin/sh\nif [ "$2" = "register-normal" ]; then\n  test -z "$WINE_DLL_FILE_MAP" && test -z "$WINE_EXE_FILE_MAP" && test -z "$XODUS_BRIDGE_KEY" || exit 72\n  printf "registration-first\n"\n  exit 0\nfi\nprintf "%s\n" "$WINE_DLL_FILE_MAP"\nexit 23\n');
+    const result = f.run({ WINEPREFIX: f.view, NEXUS_PLAYFAB_ADAPTER: '0', XODUS_BRIDGE_KEY: 'synthetic-only' });
+    assert.equal(result.status, 23, result.stderr);
+    assert.deepEqual(result.stdout.trimEnd().split('\n'), ['registration-first', f.env.WINE_DLL_FILE_MAP]);
+    assert.equal((await fs.readdir(f.view)).some(n => n.startsWith('.nexus-package-registration-')), false);
+    assert.equal(await fs.readFile(path.join(installed, 'appxmanifest.xml'), 'utf8'), 'original manifest fixture');
+    assert.equal(await fs.readFile(path.join(installed, '.xodus-streaming.msixvc'), 'utf8'), 'original signed container fixture');
+    await fs.writeFile(original, '#!/bin/sh\nif [ "$2" = "register-normal" ]; then exit 1; fi\nprintf "TARGET-MUST-NOT-RUN\n"\nexit 23\n');
+    const rejected = f.run({ WINEPREFIX: f.view, NEXUS_PLAYFAB_ADAPTER: '0' });
+    assert.equal(rejected.status, 70);
+    assert.doesNotMatch(rejected.stdout, /TARGET-MUST-NOT-RUN/);
+    assert.match(rejected.stderr, /authenticated package registration failed/);
+    assert.equal((await fs.readdir(f.view)).some(n => n.startsWith('.nexus-package-registration-')), false);
+    assert.equal(f.run({ WINEPREFIX: '', NEXUS_PLAYFAB_ADAPTER: '0' }).status, 70);
+  } finally { await fs.writeFile(original, bytes); await fs.rm(compat, { force: true }); await f.close(); }
+});
