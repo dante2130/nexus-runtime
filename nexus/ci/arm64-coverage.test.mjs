@@ -12,7 +12,7 @@ test('ARM64 packaging requires every original gate plus HTTP/2, media and graphi
   assert.ok(packager.includes('proof.results.length!==gates.length'));
   assert.ok(packager.includes('r.name!==gates[i]||r.status!==0||r.signal||r.error'));
   assert.ok(validator.includes("'--arch','arm64',...args"));
-  assert.ok(validator.includes("http.code!==0||http.timedOut||!http.summary.includes('SUMMARY checks=121 failures=0')||graphics.code!==0||graphics.timeout||!graphics.summary.some(x=>/^DXVK COMPUTE CHECKS 40 FAILURES 0\\s*$/.test(x))||!media.h264||!media.aac||!media.bundledLibraries"));
+  assert.ok(validator.includes("!hasCompleteHttpCoverage(http)||graphics.code!==0||graphics.timeout||!graphics.summary.some(x=>/^DXVK COMPUTE CHECKS 40 FAILURES 0\\s*$/.test(x))||!media.h264||!media.aac||!media.bundledLibraries"));
   assert.ok(validator.includes("failedGates.push('arm64-http-drain')"));
   assert.ok(validator.includes('await treeHash(runtime)!==proof.treeSha256'));
   const workflow=fs.readFileSync(repository+'/.github/workflows/nexus-runtime-arm64.yml','utf8');
