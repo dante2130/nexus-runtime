@@ -3,6 +3,7 @@
 // ARM64 prefix, and the C++ module loaded by aarch64, x86_64 (ARM64EC/FEX) and
 // i386 (WoW64/FEX) processes. Synthetic and offline; no game or account.
 import fs from 'node:fs/promises';
+import {hasCompleteHttpCoverage} from './http-coverage.mjs';
 import path from 'node:path';
 import {spawnSync,execFileSync} from 'node:child_process';
 import {project,readJson,sourceEnvironment} from '../inputs.mjs';
@@ -151,7 +152,7 @@ try{
   // Recheck the x86_64 thresholds independently of each runner's exit status.
   const dirs=await fs.readdir(work),single=async(prefix,name)=>{const d=dirs.filter(x=>x.startsWith(prefix));if(d.length!==1)throw Error('Missing result group: '+prefix);return readJson(work+'/'+d[0]+'/'+name);};
   const http=await single('runtime-http2-','results.json'),graphics=await single('runtime-dxvk-','result.json'),media=await readJson(work+'/media/results.json');
-  if(http.code!==0||http.timedOut||!http.summary.includes('SUMMARY checks=121 failures=0')||graphics.code!==0||graphics.timeout||!graphics.summary.some(x=>/^DXVK COMPUTE CHECKS 40 FAILURES 0\s*$/.test(x))||!media.h264||!media.aac||!media.bundledLibraries)throw Error('ARM64 HTTP/2, media or graphics coverage incomplete');
+  if(!hasCompleteHttpCoverage(http)||graphics.code!==0||graphics.timeout||!graphics.summary.some(x=>/^DXVK COMPUTE CHECKS 40 FAILURES 0\s*$/.test(x))||!media.h264||!media.aac||!media.bundledLibraries)throw Error('ARM64 HTTP/2, media or graphics coverage incomplete');
   if(await fileHash(output+'/built.json')!==proof.builtSha256||await treeHash(runtime)!==proof.treeSha256){
     const after=await entries(runtime),changed=[...new Set([...before.keys(),...after.keys()])].filter(name=>before.get(name)!==after.get(name)).sort();
     await fs.writeFile(work+'/runtime-changes.log',changed.map(name=>name+' '+(before.get(name)??'-')+' -> '+(after.get(name)??'-')).join('\n')+'\n',{flag:'wx'});
