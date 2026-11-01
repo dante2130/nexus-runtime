@@ -23,7 +23,7 @@ jobs:
         run: |
           sudo "$(command -v node)" nexus/ci/ubuntu-mirror.mjs
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends build-essential cmake gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 curl xz-utils
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends build-essential cmake gcc-multilib gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 curl xz-utils
       - run: node --test nexus/runtime-compat/*.test.mjs
       - run: node nexus/build-auxiliary.mjs --work "$RUNNER_TEMP/nexus-auxiliary"
       - name: Archive exact auxiliary source and binaries

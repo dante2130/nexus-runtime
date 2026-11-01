@@ -42,13 +42,15 @@ for(const name of prefixComponents){
 // Keep portable media separate from the SDK-built Wine. Existing libraries are
 // never silently replaced by the auxiliary bundle.
 const media=await readJson(path.join(aux,'media/media-manifest.json'));
-const libdir=path.join(files,'lib',target.unixLibrary);
-for(const [soname,item] of Object.entries(media.libraries)){
+for(const [triplet,architecture]of Object.entries(media.architectures)){
+const libdir=path.join(files,'lib',triplet);
+for(const [soname,item] of Object.entries(architecture.libraries)){
   try{await fs.access(path.join(libdir,soname));continue;}catch(e){if(e.code!=='ENOENT')throw e;}
-  const bytes=await fs.readFile(path.join(aux,'media/stage/usr/lib',target.unixLibrary,item.filename));
+  const bytes=await fs.readFile(path.join(aux,'media/stage/usr/lib',triplet,item.filename));
   if(sha256(bytes)!==item.sha256)throw Error('Media checksum mismatch');
   await fs.writeFile(path.join(libdir,item.filename),bytes,{flag:'wx'});
   if(soname!==item.filename)await fs.symlink(item.filename,path.join(libdir,soname));
+}
 }
 const notices=path.join(files,'share/doc/nexus-runtime');await fs.mkdir(notices,{recursive:true});
 // Keep the emulator's pinned upstream notice with the binary redistribution.
