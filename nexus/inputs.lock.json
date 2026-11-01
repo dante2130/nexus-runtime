@@ -2,7 +2,7 @@
   "schema": 1,
   "status": "development",
   "channel": "experimental",
-  "verifiedAuxiliaryManifestSha256": "24ee1e1484fa87a508fd28ed394ad8867cc3303dacdd7a242d9cb5b578ec7462",
+  "verifiedAuxiliaryManifestSha256": "e0f61063f256bdc3cfd3e4f2436709a2f35952d6f0cf189ced2cc874f5d53454",
   "sdk": "registry.gitlab.steamos.cloud/proton/steamrt4/sdk/x86_64@sha256:6c1789cad862fd8ed9d46d71bbf8752bb7cb2336ab5e9680c0f0e3e7c88d77f1",
   "sdkArm64": "registry.gitlab.steamos.cloud/proton/steamrt4/sdk/arm64-llvm@sha256:3a8199ffdd54c51f47e1b0d059e6fe583745214043f1f8c2e2e18377e72a3776",
   "upstream": {
@@ -38,7 +38,7 @@
   },
   "requiresLauncherVersion": "0.4.1",
   "compatibilitySources": {
-    "runtime-compat/wine-launcher.c": "42c521287b90ca0bf3683ec54f9a2dc5aa4135e337841caf565b37d3adcaddd3",
+    "runtime-compat/wine-launcher.c": "44fe3ea8dd3c03af2c321c8e394bcc927633d4c5844aa7b59bfe87c72c10042f",
     "runtime-compat/playfab-session.h": "a7bf5c391f58314439925e4095c31b6e93776609c0563a5df0198012799b80e3",
     "runtime-compat/playfab-session.c": "b52994538c05e98e758d82dd7d69d29aca8093303e2c503c72f016158621f4ec",
     "runtime-compat/playfab-save-folder.def": "a6f34058988f103cda4ae4f8774683a3ccbdf146fcc54af750b12335fc08cf8a",
