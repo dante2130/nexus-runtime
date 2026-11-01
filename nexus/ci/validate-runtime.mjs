@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import fs from 'node:fs/promises';
+import {hasCompleteHttpCoverage} from './http-coverage.mjs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {project,readJson,sourceEnvironment} from '../inputs.mjs';
@@ -66,7 +67,7 @@ try{
   // Recheck exact result thresholds independently of each runner's exit status.
   const dirs=await fs.readdir(work),single=async(prefix,name)=>{const d=dirs.filter(x=>x.startsWith(prefix));if(d.length!==1)throw Error('Missing result group');return readJson(work+'/'+d[0]+'/'+name);};
   const wine=await single('wine-contract-','results.json'),http=await single('runtime-http2-','results.json'),graphics=await single('runtime-dxvk-','result.json'),media=await readJson(work+'/media/results.json');
-  if(!wine.passed||wine.results.length!==22||wine.results.some(r=>!r.passed)||![64,32].every(bits=>wine.results.some(r=>r.name==='package-id-'+bits&&r.checks.length===3&&r.checks.every((n,i)=>n>=[2478,6,24][i]))&&wine.results.some(r=>r.name==='applicationdata-'+bits&&r.checks.length===3&&r.checks.every((n,i)=>n>=[45,7,25][i])))||http.code!==0||http.timedOut||!http.summary.includes('SUMMARY checks=121 failures=0')||graphics.code!==0||graphics.timeout||!graphics.summary.some(x=>/^DXVK COMPUTE CHECKS 40 FAILURES 0\s*$/.test(x))||!media.h264||!media.aac||!media.bundledLibraries)throw Error('Native result coverage incomplete');
+  if(!wine.passed||wine.results.length!==22||wine.results.some(r=>!r.passed)||![64,32].every(bits=>wine.results.some(r=>r.name==='package-id-'+bits&&r.checks.length===3&&r.checks.every((n,i)=>n>=[2478,6,24][i]))&&wine.results.some(r=>r.name==='applicationdata-'+bits&&r.checks.length===3&&r.checks.every((n,i)=>n>=[45,7,25][i])))||!hasCompleteHttpCoverage(http)||graphics.code!==0||graphics.timeout||!graphics.summary.some(x=>/^DXVK COMPUTE CHECKS 40 FAILURES 0\s*$/.test(x))||!media.h264||!media.aac||!media.bundledLibraries)throw Error('Native result coverage incomplete');
   passed=true;
 }finally{
   proof.passed=passed;await fs.writeFile(work+'/results.json',JSON.stringify(proof,null,2)+'\n',{flag:'wx',mode:0o600});console.log('VALIDATION_RESULT '+work+'/results.json');
