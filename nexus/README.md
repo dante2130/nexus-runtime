@@ -33,3 +33,6 @@ Work and output directories must be isolated from games and installed runtimes.
 Build output is an unvalidated Experimental candidate, not an installation or
 release. Native tests and game validation are separate. Keep corresponding
 sources and all applicable licenses with any redistributed binaries.
+
+Auxiliary dependencies in CI are cached by their recipe, input locks,
+architecture and runner image. Restored dependencies are verified before use.

@@ -38,7 +38,8 @@ test('Ubuntu 24 validation installs and checks i386 crypto and fonts before comp
 });
 test('runner paths are initialized in a step, never in the restricted job-level environment',()=>{
   const text=fs.readFileSync(path.join(repository,'.github/workflows/nexus-runtime.yml'),'utf8');
-  const jobEnv=text.slice(text.indexOf('    env:'),text.indexOf('    steps:',text.indexOf('    env:')));
+  const runtime=text.slice(text.indexOf('  runtime:'));
+  const jobEnv=runtime.slice(runtime.indexOf('    env:'),runtime.indexOf('    steps:',runtime.indexOf('    env:')));
   assert.doesNotMatch(jobEnv,/runner\./);
   assert.match(text,/CCACHE_DIR=%s\/nexus-ccache/);assert.match(text,/CARGO_HOME=%s\/nexus-cargo/);
   const checks=fs.readFileSync(path.join(repository,'.github/workflows/nexus-source.yml'),'utf8');

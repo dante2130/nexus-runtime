@@ -23,15 +23,37 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - id: auxiliary-key
+        run: node nexus/ci/auxiliary-cache.mjs plan arm64
+      - uses: actions/cache/restore@v4
+        id: auxiliary-cache
+        with:
+          path: ${{ runner.temp }}/auxiliary.tar.xz
+          key: ${{ steps.auxiliary-key.outputs.key }}
       - name: Install bounded portable auxiliary toolchain
+        if: steps.auxiliary-cache.outputs.cache-hit != 'true'
         timeout-minutes: 15
         run: |
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends build-essential cmake gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 curl xz-utils
       - run: node --test nexus/runtime-compat/*.test.mjs nexus/llvm-mingw.test.mjs
       - run: node nexus/build-auxiliary.mjs --arch arm64 --work "$RUNNER_TEMP/nexus-auxiliary"
+        if: steps.auxiliary-cache.outputs.cache-hit != 'true'
       - name: Archive exact auxiliary source and binaries
+        if: steps.auxiliary-cache.outputs.cache-hit != 'true'
+        env:
+          XZ_OPT: '-T0'
         run: tar --exclude=.git --exclude=nexus-auxiliary/llvm-mingw -cJf "$RUNNER_TEMP/auxiliary.tar.xz" -C "$RUNNER_TEMP" nexus-auxiliary
+      - name: Restore cached auxiliary components
+        if: steps.auxiliary-cache.outputs.cache-hit == 'true'
+        run: tar -xJf "$RUNNER_TEMP/auxiliary.tar.xz" -C "$RUNNER_TEMP"
+      - name: Verify auxiliary inputs and bytes on cache hits and misses
+        run: node nexus/ci/auxiliary-cache.mjs verify arm64 "$RUNNER_TEMP/nexus-auxiliary"
+      - uses: actions/cache/save@v4
+        if: steps.auxiliary-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/auxiliary.tar.xz
+          key: ${{ steps.auxiliary-key.outputs.key }}
       - uses: actions/upload-artifact@v4
         with:
           name: nexus-auxiliary-arm64
