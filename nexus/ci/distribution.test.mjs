@@ -17,7 +17,7 @@ test('cache is bounded and namespace depends on immutable SDK, not source revisi
 });
 test('full candidate workflow is main-only, read-only and cannot promote',()=>{
   const text=fs.readFileSync(path.join(repository,'.github/workflows/nexus-runtime.yml'),'utf8');
-  assert.match(text,/branches: \[main\]/);assert.equal((text.match(/if: github\.ref == 'refs\/heads\/main'/g)||[]).length,2);
+  assert.match(text,/branches: \[main\]/);assert.equal((text.match(/if: github\.ref == 'refs\/heads\/main'/g)||[]).length,3);
   assert.doesNotMatch(text,/pull_request|contents: write|gh release|APPROVE_RELEASE|\.ssh|\.config/);
   for(const command of ['build-runtime.mjs','build-fixtures.mjs','validate-runtime.mjs','package-runtime.mjs'])assert.ok(text.includes(command));
   assert.match(text,/actions\/cache\/restore@v4/);assert.match(text,/actions\/cache\/save@v4/);assert.match(text,/!cancelled\(\)/);assert.match(text,/CCACHE_MAXSIZE: 3G/);assert.match(text,/CCACHE_COMPILERCHECK: content/);
@@ -38,7 +38,8 @@ test('Ubuntu 24 validation installs and checks i386 crypto and fonts before comp
 });
 test('runner paths are initialized in a step, never in the restricted job-level environment',()=>{
   const text=fs.readFileSync(path.join(repository,'.github/workflows/nexus-runtime.yml'),'utf8');
-  const jobEnv=text.slice(text.indexOf('    env:'),text.indexOf('    steps:',text.indexOf('    env:')));
+  const runtime=text.slice(text.indexOf('  runtime:'));
+  const jobEnv=runtime.slice(runtime.indexOf('    env:'),runtime.indexOf('    steps:',runtime.indexOf('    env:')));
   assert.doesNotMatch(jobEnv,/runner\./);
   assert.match(text,/CCACHE_DIR=%s\/nexus-ccache/);assert.match(text,/CARGO_HOME=%s\/nexus-cargo/);
   const checks=fs.readFileSync(path.join(repository,'.github/workflows/nexus-source.yml'),'utf8');

@@ -18,7 +18,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - id: auxiliary-key
+        run: node nexus/ci/auxiliary-cache.mjs plan x86_64
+      - uses: actions/cache/restore@v4
+        id: auxiliary-cache
+        with:
+          path: ${{ runner.temp }}/auxiliary.tar.xz
+          key: ${{ steps.auxiliary-key.outputs.key }}
       - name: Install bounded portable auxiliary toolchain
+        if: steps.auxiliary-cache.outputs.cache-hit != 'true'
         timeout-minutes: 15
         run: |
           sudo "$(command -v node)" nexus/ci/ubuntu-mirror.mjs
@@ -26,8 +34,22 @@ jobs:
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends build-essential cmake gcc-multilib gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 curl xz-utils
       - run: node --test nexus/runtime-compat/*.test.mjs
       - run: node nexus/build-auxiliary.mjs --work "$RUNNER_TEMP/nexus-auxiliary"
+        if: steps.auxiliary-cache.outputs.cache-hit != 'true'
       - name: Archive exact auxiliary source and binaries
+        if: steps.auxiliary-cache.outputs.cache-hit != 'true'
+        env:
+          XZ_OPT: '-T0'
         run: tar --exclude=.git -cJf "$RUNNER_TEMP/auxiliary.tar.xz" -C "$RUNNER_TEMP" nexus-auxiliary
+      - name: Restore cached auxiliary components
+        if: steps.auxiliary-cache.outputs.cache-hit == 'true'
+        run: tar -xJf "$RUNNER_TEMP/auxiliary.tar.xz" -C "$RUNNER_TEMP"
+      - name: Verify auxiliary inputs and bytes on cache hits and misses
+        run: node nexus/ci/auxiliary-cache.mjs verify x86_64 "$RUNNER_TEMP/nexus-auxiliary"
+      - uses: actions/cache/save@v4
+        if: steps.auxiliary-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/auxiliary.tar.xz
+          key: ${{ steps.auxiliary-key.outputs.key }}
       - uses: actions/upload-artifact@v4
         with:
           name: nexus-auxiliary
@@ -37,6 +59,8 @@ jobs:
   runtime:
     if: github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[source-only]')
     needs: auxiliary
+    outputs:
+      checkpoint: ${{ steps.checkpoint.outputs.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -69,7 +93,7 @@ jobs:
           sudo "$(command -v node)" nexus/ci/ubuntu-mirror.mjs
           sudo dpkg --add-architecture i386
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends build-essential cmake ccache gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gcc-mingw-w64-i686 g++-mingw-w64-i686 rsync file curl xz-utils flex bison autoconf automake libtool libjson-perl wine64-tools pkg-config python3 openssl xvfb xauth libfreetype-dev libgnutls28-dev libvulkan1 mesa-vulkan-drivers libx11-6 libgstreamer1.0-dev libgstreamer-plugins-base1.0-0
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends zstd build-essential cmake ccache gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gcc-mingw-w64-i686 g++-mingw-w64-i686 rsync file curl xz-utils flex bison autoconf automake libtool libjson-perl wine64-tools pkg-config python3 openssl xvfb xauth libfreetype-dev libgnutls28-dev libvulkan1 mesa-vulkan-drivers libx11-6 libgstreamer1.0-dev libgstreamer-plugins-base1.0-0
           echo /usr/lib/wine >> "$GITHUB_PATH"
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends libgnutls30t64:i386 libfreetype6:i386
       - name: Check both native validation library ABIs before SDK compilation
@@ -105,6 +129,52 @@ jobs:
         run: ccache --show-stats
       - name: Compile fresh synthetic fixtures in the same pinned SDK
         run: node nexus/ci/build-fixtures.mjs "$RUNNER_TEMP/nexus-output" "$RUNNER_TEMP/nexus-fixtures"
+      - name: Preserve compiled runtime, fixtures and corresponding source
+        id: checkpoint
+        run: |
+          python3 nexus/ci/runtime-checkpoint.py create "$RUNNER_TEMP/nexus-output" "$RUNNER_TEMP/nexus-fixtures" "$RUNNER_TEMP/nexus-checkpoint"
+          echo "name=runtime-checkpoint-x86_64-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.checkpoint.outputs.name }}
+          path: ${{ runner.temp }}/nexus-checkpoint/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+  validation:
+    if: github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[source-only]')
+    needs: runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      XZ_OPT: '-T2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Free only unused preinstalled hosted-runner SDKs
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+      - name: Install bounded offline validation prerequisites
+        timeout-minutes: 15
+        run: |
+          sudo "$(command -v node)" nexus/ci/ubuntu-mirror.mjs
+          sudo dpkg --add-architecture i386
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends zstd build-essential cmake ccache gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gcc-mingw-w64-i686 g++-mingw-w64-i686 rsync file curl xz-utils flex bison autoconf automake libtool libjson-perl wine64-tools pkg-config python3 openssl xvfb xauth libfreetype-dev libgnutls28-dev libvulkan1 mesa-vulkan-drivers libx11-6 libgstreamer1.0-dev libgstreamer-plugins-base1.0-0
+          echo /usr/lib/wine >> "$GITHUB_PATH"
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends libgnutls30t64:i386 libfreetype6:i386
+      - name: Check both native validation library ABIs before SDK compilation
+        run: node nexus/ci/validation-dependencies.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.runtime.outputs.checkpoint }}
+          path: ${{ runner.temp }}/nexus-checkpoint
+      - name: Restore exact unvalidated build without recompilation
+        run: python3 nexus/ci/runtime-checkpoint.py restore "$RUNNER_TEMP/nexus-checkpoint" x86_64
       - name: Validate both ABIs, authentication, saves, DLC, HTTP, media and graphics
         run: xvfb-run -a node nexus/ci/validate-runtime.mjs "$RUNNER_TEMP/nexus-output" "$RUNNER_TEMP/nexus-fixtures" "$RUNNER_TEMP/nexus-validation"
       - name: Package validated bytes and corresponding source only
@@ -112,6 +182,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: nexus-runtime
+          overwrite: true
           path: |
             ${{ runner.temp }}/nexus-output/*.tar.xz
             ${{ runner.temp }}/nexus-output/*.sha512sum
@@ -122,7 +193,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-validation
+          name: native-validation-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/nexus-validation/*.json
             ${{ runner.temp }}/nexus-validation/*.log
