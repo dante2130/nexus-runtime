@@ -6,7 +6,8 @@ int main(int argc, char **argv)
 {
     GstRegistry *registry;
     static const char *required[] = {
-        "avdec_h264", "avdec_aac", "asfdemux", "avdec_wmv3", "avdec_wmapro"
+        "avdec_h264", "avdec_aac", "asfdemux", "avdec_wmv3", "avdec_wmapro",
+        "theoradec", "vp8dec", "vp9dec", "oggdemux", "vorbisdec", "mpg123audiodec", "hlsdemux"
     };
     unsigned int i;
 

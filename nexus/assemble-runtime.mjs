@@ -5,6 +5,8 @@ import {project,readJson,sha256} from './inputs.mjs';
 import {copySdkRedistribution,makeSdkLinksPortable} from './runtime-copy.mjs';
 import {targets} from './target.mjs';
 import {moduleCapabilities} from './module-capabilities.mjs';
+import {buildPackageRegistration} from './package-registration.mjs';
+import {verifyRuntimeDependencies} from './runtime-dependency-sources.mjs';
 export async function assembleRuntime({work,build,redist,source,wine,aux,output,name,inputs,graph,auxiliary,lockHash,target=targets.x86_64}){
 const proton={requiresBackendVersion:inputs.requiresBackendVersion};
 await fs.mkdir(output,{recursive:false});
@@ -26,6 +28,7 @@ for(const name of ['PlayFabGameSave.dll','gaming-services-version.exe','wine-lau
     await fs.writeFile(path.join(files,target.bin,'wine'),bytes,{flag:'wx',mode:0o755});
   }else await fs.writeFile(path.join(compat,name),bytes,{flag:'wx'});
 }
+const registrationSha256=await buildPackageRegistration(wine,path.join(compat,'package-registration.exe'));
 // Every target ships the pinned vkd3d shader DLL (ARM64X on ARM64). The HLSL
 // keyword feature stays x86_64-only until ARM64 runs its contract probe.
 const prefixComponents=['kernelbase.dll','xgameruntime.dll','winhttp.dll','mscoree.dll','windows.web.dll','twinapi.appcore.dll','libnghttp2.dll','libvkd3d-shader-1.dll','d3d8.dll','d3d9.dll','d3d10core.dll','d3d11.dll','dxgi.dll'];
@@ -39,13 +42,15 @@ for(const name of prefixComponents){
 // Keep portable media separate from the SDK-built Wine. Existing libraries are
 // never silently replaced by the auxiliary bundle.
 const media=await readJson(path.join(aux,'media/media-manifest.json'));
-const libdir=path.join(files,'lib',target.unixLibrary);
-for(const [soname,item] of Object.entries(media.libraries)){
+for(const [triplet,architecture]of Object.entries(media.architectures)){
+const libdir=path.join(files,'lib',triplet);
+for(const [soname,item] of Object.entries(architecture.libraries)){
   try{await fs.access(path.join(libdir,soname));continue;}catch(e){if(e.code!=='ENOENT')throw e;}
-  const bytes=await fs.readFile(path.join(aux,'media/stage/usr/lib',target.unixLibrary,item.filename));
+  const bytes=await fs.readFile(path.join(aux,'media/stage/usr/lib',triplet,item.filename));
   if(sha256(bytes)!==item.sha256)throw Error('Media checksum mismatch');
   await fs.writeFile(path.join(libdir,item.filename),bytes,{flag:'wx'});
   if(soname!==item.filename)await fs.symlink(item.filename,path.join(libdir,soname));
+}
 }
 const notices=path.join(files,'share/doc/nexus-runtime');await fs.mkdir(notices,{recursive:true});
 // Keep the emulator's pinned upstream notice with the binary redistribution.
@@ -53,6 +58,9 @@ await fs.copyFile(path.join(source,'FEX/LICENSE'),path.join(notices,'FEX-LICENSE
 for(const [name,sourceFile] of [['runtime-compat-LICENSE',path.join(project,'LICENSE')],['NOTICE',path.join(project,'NOTICE')],['nghttp2-LICENSE',path.join(aux,'components/nghttp2-LICENSE')],['Wine-LICENSE',path.join(wine,'COPYING.LIB')],['TomCrypt-LICENSE',path.join(wine,'libs/tomcrypt/LICENSE')],['xgameruntime-LICENSE',path.join(wine,'dlls/xgameruntime/LICENSE')],['DXVK-LICENSE',path.join(source,'dxvk/LICENSE')],['VKD3D-LICENSE',path.join(source,'vkd3d/COPYING')],['FFmpeg-COPYING.LGPLv2.1',path.join(aux,'media/ffmpeg-'+media.version+'/COPYING.LGPLv2.1')]])await fs.copyFile(sourceFile,path.join(notices,name));
 const metadata={schema:1,status:'experimental',description:'Independent Nexus runtime built from pinned official Proton Experimental sources.',baseProtonCommit:inputs.upstream.proton,patchState:graph.proton,sourceLockSha256:lockHash,requiresBackendVersion:proton.requiresBackendVersion,components,runtimeCompatibility:auxiliary.compatibility,features:['cloud-saves-pr28','xodus-tcp-bridge-v1','package-locale','xuser-contract-v1','xuser-windows-account-metadata-v1','wine-winhttp-http2-v1','nghttp2-v1','winrt-json-v1','xasync-provider-contract-v1','xtaskqueue-lifecycle-v1','playfab-package-save-folder-v1','xstore-entitlements-v1','xstore-durable-license-v1','xstore-related-discovery-v1','xpackage-content-v1','xstore-package-license-v1','hlsl-state-keywords-v1','appmodel-package-identity-v1','appstate-registration-v1','appconstrained-registration-v1','xtaskqueue-repeat-termination-v1','xgame-relaunch-current-user-v1','dxvk-constant-compare-v1'].filter(feature=>target.primaryPe==='x86_64'||feature!=='hlsl-state-keywords-v1')};
 metadata.sourceGraph=graph;
+metadata.packageRegistration={schema:1,sha256:registrationSha256,provider:'WineVerifiedXvd-v1'};
+metadata.runtimeDependencies=await verifyRuntimeDependencies(files,inputs[target.sdk]);
+metadata.features.push('verified-package-registration-v1');
 metadata.features.push(...await moduleCapabilities(path.join(wine,'dlls/xgameruntime')));
 // `components` are the primary PE directory's checksums; arm64 launchers look
 // them up by PE directory, so a non-x86_64 target names its directory too.

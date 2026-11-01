@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fetchMediaSource } from './media-source.mjs';
+import {mediaBuildTargets} from './media-build-plan.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const lock = JSON.parse(await fs.readFile(path.join(root, 'runtime-media.lock.json'), 'utf8'));
@@ -26,9 +27,8 @@ if (!/^ffmpeg-[0-9.]+\.tar\.xz$/.test(lock.archive) || !/^[a-f0-9]{64}$/.test(lo
   throw new Error('Invalid pinned FFmpeg source.');
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
-// Media libraries are native to the build host: x86_64 or aarch64 Linux.
-const host = { x64: { triplet: 'x86_64-linux-gnu', machine: 'Advanced Micro Devices X86-64' }, arm64: { triplet: 'aarch64-linux-gnu', machine: 'AArch64' } }[process.arch];
-if (!host) throw new Error('Unsupported media build host.');
+// x86 Wine includes both Unix ABIs; each needs the actual decoder libraries.
+const targets = mediaBuildTargets(process.arch), host = targets[0];
 const run = (command, argv, cwd = work) => execFileSync(command, argv, { cwd, stdio: 'inherit', env: { ...process.env, LC_ALL: 'C' } });
 await fs.mkdir(work, { recursive: false });
 const sourceArchive = path.join(work, lock.archive);
@@ -43,42 +43,51 @@ for (const entry of listing.trimEnd().split('\n')) {
 }
 run('tar', ['-xJf', sourceArchive, '-C', work]);
 const source = path.join(work, sourceDirectory);
-const configure = [
-  '--prefix=/usr', `--libdir=/usr/lib/${host.triplet}`,
+const common = [
+  '--prefix=/usr',
   '--disable-static', '--enable-shared', '--disable-autodetect',
   '--disable-programs', '--disable-doc', '--disable-debug', '--disable-x86asm',
   '--disable-gpl', '--disable-nonfree', '--disable-encoders', '--disable-muxers', '--disable-devices',
 ];
-run('./configure', configure, source);
-run('make', [`-j${jobs}`], source);
 const stage = path.join(work, 'stage');
-run('make', [`DESTDIR=${stage}`, 'install'], source);
-const libdir = path.join(stage, 'usr/lib', host.triplet);
-const libraries = {};
 let maxGlibc = [0, 0];
+const architectures = {};
+for (const target of targets) {
+const build = path.join(work, 'build-' + target.triplet);
+await fs.mkdir(build);
+const configure = [...common, `--libdir=/usr/lib/${target.triplet}`, ...target.options];
+run(path.join(source, 'configure'), configure, build);
+run('make', [`-j${jobs}`], build);
+run('make', [`DESTDIR=${stage}`, 'install'], build);
+const libdir = path.join(stage, 'usr/lib', target.triplet), libraries = {};
+let archMaxGlibc = [0, 0];
 for (const [soname, filename] of Object.entries(lock.libraries)) {
-  const target = await fs.realpath(path.join(libdir, soname));
-  if (path.basename(target) !== filename) throw new Error(`Unexpected FFmpeg SONAME target: ${soname}`);
-  const header = execFileSync('readelf', ['-h', target], { encoding: 'utf8' });
-  const dynamic = execFileSync('readelf', ['-d', target], { encoding: 'utf8' });
-  if (!header.includes(host.machine) || !dynamic.includes(`Library soname: [${soname}]`))
+  const file = await fs.realpath(path.join(libdir, soname));
+  if (path.basename(file) !== filename) throw new Error(`Unexpected FFmpeg SONAME target: ${soname}`);
+  const header = execFileSync('readelf', ['-h', file], { encoding: 'utf8' });
+  const dynamic = execFileSync('readelf', ['-d', file], { encoding: 'utf8' });
+  if (!header.includes(target.machine) || !dynamic.includes(`Library soname: [${soname}]`))
     throw new Error(`Invalid FFmpeg ELF or SONAME: ${soname}`);
-  const versions = execFileSync('readelf', ['--version-info', target], { encoding: 'utf8' });
+  const versions = execFileSync('readelf', ['--version-info', file], { encoding: 'utf8' });
   for (const match of versions.matchAll(/GLIBC_(\d+)\.(\d+)/g)) {
     const version = [Number(match[1]), Number(match[2])];
+    if (version[0] > archMaxGlibc[0] || (version[0] === archMaxGlibc[0] && version[1] > archMaxGlibc[1])) archMaxGlibc = version;
     if (version[0] > maxGlibc[0] || (version[0] === maxGlibc[0] && version[1] > maxGlibc[1])) maxGlibc = version;
   }
-  libraries[soname] = { filename, sha256: sha256(await fs.readFile(target)) };
+  libraries[soname] = { filename, sha256: sha256(await fs.readFile(file)) };
+}
+architectures[target.triplet] = {configure, maxGlibc: archMaxGlibc.join('.'), libraries};
 }
 await fs.writeFile(path.join(work, 'media-manifest.json'), JSON.stringify({
   source: lock.url, sourceSha256: lock.sha256, version: lock.version, triplet: host.triplet,
   ...(sourceTransport ? {sourceTransport} : {}),
-  license: 'LGPL-2.1-or-later', configure, maxGlibc: maxGlibc.join('.'), libraries,
+  license: 'LGPL-2.1-or-later', configure: architectures[host.triplet].configure,
+  maxGlibc: maxGlibc.join('.'), libraries: architectures[host.triplet].libraries, architectures,
 }, null, 2) + '\n');
 const bundleEntries = [lock.archive, 'media-manifest.json', `${sourceDirectory}/COPYING.LGPLv2.1`,
-  ...Object.entries(lock.libraries).flatMap(([soname, filename]) => [
-    `stage/usr/lib/${host.triplet}/${soname}`,
-    `stage/usr/lib/${host.triplet}/${filename}`,
-  ])];
+  ...targets.flatMap(target => Object.entries(lock.libraries).flatMap(([soname, filename]) => [
+    `stage/usr/lib/${target.triplet}/${soname}`,
+    `stage/usr/lib/${target.triplet}/${filename}`,
+  ]))];
 run('tar', ['-cJf', path.join(work, 'media-bundle.tar.xz'), '-C', work, ...bundleEntries]);
-console.log(`Built pinned LGPL media libraries: ${libdir}`);
+console.log(`Built pinned LGPL media libraries: ${targets.map(target => target.triplet).join(', ')}`);

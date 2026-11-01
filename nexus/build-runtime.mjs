@@ -9,6 +9,7 @@ import {requireShaderVersion} from './shader-version.mjs';
 import {targetArgument} from './target.mjs';
 import {llvmMingwPin} from './llvm-mingw.mjs';
 import {prepareFexSource,verifyPreparedFex} from './fex-source.mjs';
+import {collectRuntimeDependencySources} from './runtime-dependency-sources.mjs';
 if(process.env.GITHUB_REF&&process.env.GITHUB_REF!=='refs/heads/main')throw Error('Distribution builds are main-only');
 const {target,args}=targetArgument(process.argv.slice(2));
 const [auxArg,workArg,outputArg,resumeArg]=args;
@@ -64,5 +65,6 @@ for(const [file,expected]of Object.entries(auxiliary.headers))if(sha256(await fs
 try{await fs.lstat(output);throw Error('Output already exists');}catch(error){if(error.code!=='ENOENT')throw error;}
 const redist=path.join(build,'redist-'+graph.proton.slice(0,8));
 for(const stage of sdkBuildPlan(build,epoch,jobs,redist,target.hostTools)){console.log(stage.name);run('make',stage.args,build,{timeout:stage.timeout});}
+await collectRuntimeDependencySources(path.join(redist,'files'),work);
 await verifyAuxiliary(aux,inputs,target);
 await assembleRuntime({work,build,redist,source,wine,aux,output,name,inputs,graph,auxiliary,lockHash,target});

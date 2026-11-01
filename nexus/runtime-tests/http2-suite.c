@@ -255,9 +255,9 @@ done:
 
 struct asynchronous {
     HANDLE done, closed;
-    BYTE buffer[8192];
+    BYTE buffer[16384];
     DWORD total, send_count, header_count, errors, error_code;
-    BOOL cancel, query_available;
+    BOOL cancel, query_available, fill;
 };
 
 static void CALLBACK callback(HINTERNET handle, DWORD_PTR context, DWORD status, void *info, DWORD length)
@@ -281,6 +281,7 @@ static void CALLBACK callback(HINTERNET handle, DWORD_PTR context, DWORD status,
     case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
         if (!length) { SetEvent(test->done); break; }
         if (!pattern(info, test->total, length)) test->errors++;
+        if (test->fill && length != min(sizeof(test->buffer), 200000 - test->total)) test->errors++;
         test->total += length;
         if (!(test->query_available ? WinHttpQueryDataAvailable(handle, NULL) :
               WinHttpReadData(handle, test->buffer, sizeof(test->buffer), NULL))) { test->errors++; SetEvent(test->done); }
@@ -298,9 +299,10 @@ static void CALLBACK callback(HINTERNET handle, DWORD_PTR context, DWORD status,
 
 static DWORD WINAPI async_test(void *argument)
 {
-    BOOL cancel = (UINT_PTR)argument == 1, compressed = (UINT_PTR)argument >= 2;
+    BOOL cancel = (UINT_PTR)argument == 1, compressed = (UINT_PTR)argument == 2 || (UINT_PTR)argument == 3;
     struct asynchronous test = {0};
     test.cancel = cancel;
+    test.fill = (UINT_PTR)argument >= 4;
     test.query_available = (UINT_PTR)argument == 3;
     test.done = CreateEventW(NULL, TRUE, FALSE, NULL);
     test.closed = CreateEventW(NULL, TRUE, FALSE, NULL);
@@ -309,13 +311,14 @@ static DWORD WINAPI async_test(void *argument)
     BOOL ok = FALSE;
     if (!session) goto done;
     WinHttpSetTimeouts(session, 5000, 5000, 5000, 5000);
+    if ((UINT_PTR)argument == 5) { DWORD flags = 0; if (!WinHttpSetOption(session, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &flags, sizeof(flags))) goto done; }
     if (compressed) {
         DWORD flags = WINHTTP_DECOMPRESSION_FLAG_GZIP;
         if (!WinHttpSetOption(session, WINHTTP_OPTION_DECOMPRESSION, &flags, sizeof(flags))) goto done;
     }
     connection = WinHttpConnect(session, L"localhost", port, 0);
     if (!connection) goto done;
-    request = WinHttpOpenRequest(connection, L"GET", cancel ? L"/slow" : compressed ? L"/gzip" : L"/body", NULL, NULL, NULL, WINHTTP_FLAG_SECURE);
+    request = WinHttpOpenRequest(connection, L"GET", cancel ? L"/slow" : test.fill ? L"/fragmented-fill" : compressed ? L"/gzip" : L"/body", NULL, NULL, NULL, WINHTTP_FLAG_SECURE);
     if (!request) goto done;
     WinHttpSetStatusCallback(request, callback, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS, 0);
     if (!WinHttpSendRequest(request, NULL, 0, NULL, 0, 0, (DWORD_PTR)&test)) goto done;
@@ -333,6 +336,33 @@ done:
     printf("ASYNC cancel=%u send=%lu headers=%lu bytes=%lu errors=%lu code=%lu result=%u\n",
            cancel, test.send_count, test.header_count, test.total, test.errors, test.error_code, ok);
     return ok ? 0 : 1;
+}
+
+static void fragmented_sync(BOOL h1)
+{
+    HINTERNET session = WinHttpOpen(L"WinHTTP-Fill-Test", WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
+    HINTERNET connection = NULL, request = NULL;
+    BYTE buffer[16384];
+    DWORD total = 0, count = 0, flags = 0;
+    BOOL ok = FALSE;
+    if (!session) goto done;
+    WinHttpSetTimeouts(session, 5000, 5000, 5000, 5000);
+    if (h1 && !WinHttpSetOption(session, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &flags, sizeof(flags))) goto done;
+    connection = WinHttpConnect(session, L"localhost", port, 0);
+    if (!connection) goto done;
+    request = WinHttpOpenRequest(connection, L"GET", L"/fragmented-fill", NULL, NULL, NULL, WINHTTP_FLAG_SECURE);
+    if (!request || !WinHttpSendRequest(request, NULL, 0, NULL, 0, 0, 0) || !WinHttpReceiveResponse(request, NULL)) goto done;
+    for (;;) {
+        if (!WinHttpReadData(request, buffer, sizeof(buffer), &count)) goto done;
+        if (count != min(sizeof(buffer), 200000 - total) || !pattern(buffer, total, count)) goto done;
+        total += count;
+        if (!count) { ok = total == 200000; break; }
+    }
+ done:
+    if (request) WinHttpCloseHandle(request);
+    if (connection) WinHttpCloseHandle(connection);
+    if (session) WinHttpCloseHandle(session);
+    check(ok, h1 ? "fragmented-read-fill-sync-h1" : "fragmented-read-fill-sync-h2");
 }
 
 static void rejection(const char *name, const WCHAR *host, const WCHAR *target)
@@ -386,6 +416,10 @@ int main(int argc, char **argv)
     check(async_test((void *)1) == 0, "cancel-pending");
     check(async_test((void *)2) == 0, "gzip-async");
     check(async_test((void *)3) == 0, "gzip-async-query-available");
+    check(async_test((void *)4) == 0, "fragmented-read-fill-async-h2");
+    check(async_test((void *)5) == 0, "fragmented-read-fill-async-h1");
+    fragmented_sync(FALSE);
+    fragmented_sync(TRUE);
     printf("SUMMARY checks=%u failures=%u\n", checks, failures);
     return failures ? 1 : 0;
 }

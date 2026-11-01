@@ -126,12 +126,13 @@ test('actual source archive preserves nested source and gitlinks, never credenti
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'nexus-source-archive-'));
   try{
     const source=root+'/source-input',aux=root+'/aux',work=root+'/work',archive=root+'/source.tar.xz';
-    const entries={'source-input/.git/config':'synthetic credential placeholder','source-input/.gitmodules':'public gitlink urls','source-input/contrib/download.zip':'binary download','source-input/wine/.git/config':'nested git metadata','source-input/wine/dlls/xgameruntime/CMakeLists.txt':'cmake source','source-input/nexus/licenses/GCC-runtime-copyright':'license','aux/nghttp2-src/COPYING':'nghttp2 license','aux/auxiliary.json':'{}','aux/media/ffmpeg-4.4.8.tar.xz':'pinned source archive','aux/media/media-manifest.json':'{}','work/prepared.json':'{}'};
+    const entries={'source-input/.git/config':'synthetic credential placeholder','source-input/.gitmodules':'public gitlink urls','source-input/contrib/download.zip':'binary download','source-input/wine/.git/config':'nested git metadata','source-input/wine/dlls/xgameruntime/CMakeLists.txt':'cmake source','source-input/nexus/licenses/GCC-runtime-copyright':'license','aux/nghttp2-src/COPYING':'nghttp2 license','aux/auxiliary.json':'{}','aux/media/ffmpeg-4.4.8.tar.xz':'pinned source archive','aux/media/media-manifest.json':'{}','work/prepared.json':'{}','work/runtime-dependency-sources/manifest.json':'{}','work/runtime-dependency-sources/codec.orig.tar.xz':'corresponding SDK codec source'};
     for(const [relative,bytes]of Object.entries(entries)){const file=root+'/'+relative;fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);}
     const packed=spawnSync('tar',sourceArchiveArgs(archive,source,aux,work,'4.4.8'),{encoding:'utf8'});assert.equal(packed.status,0,packed.stderr);
     const list=spawnSync('tar',['-tJf',archive],{encoding:'utf8'});assert.equal(list.status,0,list.stderr);
     const names=list.stdout.trim().split('\n');
     for(const name of ['source/.gitmodules','source/wine/dlls/xgameruntime/CMakeLists.txt','source/nexus/licenses/GCC-runtime-copyright','nghttp2-src/COPYING','media/ffmpeg-4.4.8.tar.xz','prepared.json'])assert.ok(names.includes(name),name);
+    for(const name of ['runtime-dependency-sources/manifest.json','runtime-dependency-sources/codec.orig.tar.xz'])assert.ok(names.includes(name),name);
     assert.ok(!names.some(n=>n.split('/').includes('.git')||n.includes('download.zip')));
   }finally{fs.rmSync(root,{recursive:true});}
 });
