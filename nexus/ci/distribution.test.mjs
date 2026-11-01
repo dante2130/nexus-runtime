@@ -17,7 +17,7 @@ test('cache is bounded and namespace depends on immutable SDK, not source revisi
 });
 test('full candidate workflow is main-only, read-only and cannot promote',()=>{
   const text=fs.readFileSync(path.join(repository,'.github/workflows/nexus-runtime.yml'),'utf8');
-  assert.match(text,/branches: \[main\]/);assert.equal((text.match(/if: github\.ref == 'refs\/heads\/main'/g)||[]).length,2);
+  assert.match(text,/branches: \[main\]/);assert.equal((text.match(/if: github\.ref == 'refs\/heads\/main'/g)||[]).length,3);
   assert.doesNotMatch(text,/pull_request|contents: write|gh release|APPROVE_RELEASE|\.ssh|\.config/);
   for(const command of ['build-runtime.mjs','build-fixtures.mjs','validate-runtime.mjs','package-runtime.mjs'])assert.ok(text.includes(command));
   assert.match(text,/actions\/cache\/restore@v4/);assert.match(text,/actions\/cache\/save@v4/);assert.match(text,/!cancelled\(\)/);assert.match(text,/CCACHE_MAXSIZE: 3G/);assert.match(text,/CCACHE_COMPILERCHECK: content/);

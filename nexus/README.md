@@ -34,5 +34,13 @@ Build output is an unvalidated Experimental candidate, not an installation or
 release. Native tests and game validation are separate. Keep corresponding
 sources and all applicable licenses with any redistributed binaries.
 
-Auxiliary dependencies in CI are cached by their recipe, input locks,
-architecture and runner image. Restored dependencies are verified before use.
+## Retrying CI validation
+
+The x86_64 and ARM64 candidate workflows keep compilation and native validation
+in separate jobs. After a validation failure, use **Re-run failed jobs** to reuse
+the compiled runtime and fixtures from the same workflow commit. Checkpoint
+artifacts are retained for seven days and are unvalidated until all native gates
+pass. A different source commit requires a new build.
+
+Auxiliary dependencies are cached by their recipe, input locks, architecture and
+runner image. Restored dependencies are verified before use.
