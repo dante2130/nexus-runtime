@@ -34,6 +34,7 @@ try{
   for(const [name,min]of [['appstate',191215],['appstate-source',191231],['appconstrained',191215],['appconstrained-source',191231],['hlsl-state-keywords',320],['winrt-json',9]])await execute(name,tests+'/'+name+'-probe.exe',[],{},min);
   for(const [kind,min]of [['vector',22209],['queue',201483],['yield',1014]])for(const bits of [64,32])await execute('concrt-'+kind+'-'+bits,tests+'/concrt-'+kind+'-'+bits+'-probe.exe',[],{},min);
   for(const bits of [64,32]){
+    await execute('pending-shutdown-'+bits,tests+'/pending-shutdown-'+bits+'-probe.exe',[],{},113);
     await execute('crypto-'+bits,tests+'/crypto-'+bits+'-probe.exe',[],{},40);
     await execute('appmodel-'+bits,tests+'/appmodel-'+bits+'-probe.exe',[],{},42);
     await execute('package-id-'+bits,tests+'/package-id-'+bits+'-probe.exe');

@@ -29,6 +29,7 @@ static HRESULT (WINAPI *upload_result)(NexusAsync *);
 static HRESULT (WINAPI *connected)(void *,BOOLEAN *);
 static HRESULT (WINAPI *cleanup_async)(NexusAsync *);
 static HRESULT (WINAPI *cleanup_result)(NexusAsync *);
+static LONG (WINAPI *pending_shutdown)(HANDLE);
 typedef struct SaveUser { void *handle; struct SaveUser *next; } SaveUser;
 static SaveUser *users;
 static const GUID threadingId={0x073b7dcb,0x1fcf,0x4030,{0x94,0xbe,0xe3,0xc9,0xeb,0x62,0x34,0x28}};
@@ -46,6 +47,7 @@ static HRESULT bind_session(HMODULE sdk)
     if(threads) return S_OK;
     if(!core||!runtime) return HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND);
     sdkModule=sdk;
+    pending_shutdown=(void*)GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"__wine_set_pending_shutdown_event");
     duplicate_user=(void*)GetProcAddress(core,"PFLocalUserDuplicateHandle");
     close_user=(void*)GetProcAddress(core,"PFLocalUserCloseHandle");
     compare_user=(void*)GetProcAddress(core,"PFLocalUserHandleCompare");
@@ -300,6 +302,7 @@ static DWORD WINAPI finish_worker(void *arg)
     if(FAILED(hr)&&SUCCEEDED(result))result=hr;
     AcquireSRWLockExclusive(&sessionLock);enabled=FALSE;closing=FALSE;
     sessionResult=result;SetEvent(sessionDone);
+    if(pending_shutdown)pending_shutdown(NULL);
     ZeroMemory(&titleCallbacks,sizeof(titleCallbacks));InterlockedIncrement(&generation);
     ReleaseSRWLockExclusive(&sessionLock);
     note("session closed",result);
@@ -315,6 +318,8 @@ static HRESULT WINAPI finish_provider(unsigned op,const NexusProviderData *data)
         if(!worker){
             HRESULT hr=HRESULT_FROM_WIN32(GetLastError());
             AcquireSRWLockExclusive(&sessionLock);users=f->users;f->users=NULL;closing=FALSE;
+            SetEvent(sessionDone);
+            if(pending_shutdown)pending_shutdown(NULL);
             ReleaseSRWLockExclusive(&sessionLock);finish_release(f);return hr;
         }
         CloseHandle(worker);
@@ -337,6 +342,14 @@ HRESULT nexus_session_cleanup(HMODULE sdk,NexusAsync *async)
         hr=f->done?threads->vtable->create_queue(threads,1,1,&f->queue):HRESULT_FROM_WIN32(GetLastError());
         if(FAILED(hr)){if(f->done)CloseHandle(f->done);threads->vtable->release(threads);HeapFree(GetProcessHeap(),0,f);f=NULL;}
     }
+    /* Arm only work which is about to be submitted. Do not change the async
+     * API into a blocking call or wait on the title's Manual completion port. */
+    if(SUCCEEDED(hr)&&pending_shutdown) {
+        ResetEvent(sessionDone);
+        LONG status=pending_shutdown(sessionDone);
+        if(status<0)hr=(HRESULT)((ULONG)status|0x10000000u);
+    }
+    if(FAILED(hr)&&f){finish_release(f);f=NULL;}
     if(SUCCEEDED(hr)){closing=TRUE;f->users=users;users=NULL;}
     ReleaseSRWLockExclusive(&sessionLock);
     if(FAILED(hr))return hr;
@@ -344,13 +357,16 @@ HRESULT nexus_session_cleanup(HMODULE sdk,NexusAsync *async)
     hr=threads->vtable->begin(threads,async,f,NULL,"Nexus PlayFab final synchronization",finish_provider);
     if(FAILED(hr)) {
         AcquireSRWLockExclusive(&sessionLock);users=f->users;f->users=NULL;closing=FALSE;
+        SetEvent(sessionDone);
+        if(pending_shutdown)pending_shutdown(NULL);
         ReleaseSRWLockExclusive(&sessionLock);finish_release(f);
     }
     return hr;
 }
 /* Runtime Uninitialize is synchronous and outside the loader lock. SDK cleanup
  * stays asynchronous; this final barrier waits for acknowledged SDK work, not
- * the title's Manual completion callback. It cannot cover ExitProcess/kill. */
+ * the title's Manual completion callback. Pending-work protection additionally
+ * covers successful self-termination, but not external kill or crashes. */
 static HRESULT WINAPI drain_session(void *context)
 {
     NexusAsync async={0};HANDLE complete=NULL;void *queue=NULL;
