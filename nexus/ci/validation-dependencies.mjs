@@ -9,7 +9,8 @@ const architectures=[
   {name:'x86_64',elfClass:2,machine:62,loader:'/lib64/ld-linux-x86-64.so.2',triplet:'x86_64-linux-gnu'},
   {name:'i386',elfClass:1,machine:3,loader:'/lib/ld-linux.so.2',triplet:'i386-linux-gnu'},
 ];
-const libraries=['libgnutls.so.30','libfreetype.so.6'];
+// Native i386 Wine GUI probes need the X11 driver dependencies too.
+const libraries=['libgnutls.so.30','libfreetype.so.6','libX11.so.6','libXext.so.6'];
 
 export async function checkValidationDependencies({root='/',execute=spawnSync}={}){
   root=await fs.realpath(root);
