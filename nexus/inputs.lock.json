@@ -40,7 +40,7 @@
   "compatibilitySources": {
     "runtime-compat/wine-launcher.c": "44fe3ea8dd3c03af2c321c8e394bcc927633d4c5844aa7b59bfe87c72c10042f",
     "runtime-compat/playfab-session.h": "a7bf5c391f58314439925e4095c31b6e93776609c0563a5df0198012799b80e3",
-    "runtime-compat/playfab-session.c": "b52994538c05e98e758d82dd7d69d29aca8093303e2c503c72f016158621f4ec",
+    "runtime-compat/playfab-session.c": "dc312d92a176417ce804512bd57bd3da2ae908c005d911bcc974fa1b8b6f0870",
     "runtime-compat/playfab-save-folder.def": "a6f34058988f103cda4ae4f8774683a3ccbdf146fcc54af750b12335fc08cf8a",
     "runtime-compat/playfab-save-folder.c": "fa63ceff1c77e2a1cdac5daae134ad46c29a20bf889208b5d73cfa808d53d56f",
     "runtime-compat/gaming-services-version.c": "3410efcc5c862085684323034b41131ce1bc6d44c36fb013ecc4b9dc197dd128",
