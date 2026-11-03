@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import {parseWinHttpCancellation} from './http-cancellation-coverage.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {spawnSync,execFileSync} from 'node:child_process';
@@ -14,7 +15,7 @@ for(const name of ['wine','wine64','wineserver','wineserver64','xodus-cli','xodu
 const root=await fs.mkdtemp(path.join(parent,'wine-contract-'));await fs.chmod(root,0o700);
 const prefix=root+'/pfx',files=runtime+'/files',engine=files+'/bin/wine',server=files+'/bin/wineserver';
 const env={...sourceEnvironment(),WINEPREFIX:prefix,WINEARCH:'win64',WINEDEBUG:'-all,err+all',LD_LIBRARY_PATH:files+'/lib/x86_64-linux-gnu:'+files+'/lib/i386-linux-gnu:'+files+'/lib',WINEDLLPATH:files+'/lib/vkd3d:'+files+'/lib/wine',WINEDLLOVERRIDES:'winemenubuilder.exe=d;mscoree,mshtml=d;xgameruntime=b;winhttp=b;libnghttp2=n',PYTHONDONTWRITEBYTECODE:'1'};
-const binaries={};for(const arch of ['x86_64','i386'])for(const name of ['xgameruntime.dll','concrt140.dll','kernelbase.dll'])binaries[arch+'/'+name]=await fileHash(files+'/lib/wine/'+arch+'-windows/'+name);
+const binaries={};for(const arch of ['x86_64','i386'])for(const name of ['xgameruntime.dll','concrt140.dll','kernelbase.dll','winhttp.dll'])binaries[arch+'/'+name]=await fileHash(files+'/lib/wine/'+arch+'-windows/'+name);
 let passed=false;const results=[];
 async function execute(name,exe,args=[],overrides={},minimum=1){
   const r=spawnSync(engine,[exe,...args],{cwd:root,env:{...env,...overrides},encoding:'utf8',timeout:120000,maxBuffer:4*1024*1024});
@@ -24,6 +25,16 @@ async function execute(name,exe,args=[],overrides={},minimum=1){
   const dataComplete=!name.startsWith('applicationdata-')||(summaries.length===3&&summaries.every((m,i)=>+m[1]>=[45,7,25][i]));
   const ok=r.status===0&&!r.error&&!r.signal&&packageComplete&&dataComplete&&summaries.length>0&&summaries.every(m=>+m[1]>=minimum&&+m[2]===0)&&!/^FAIL /m.test(output);
   results.push({name,status:r.status,signal:r.signal,checks:summaries.map(x=>+x[1]),passed:ok});
+  if(!ok)throw Error('Native contract failed: '+name+'; '+root);
+  console.log(name+' PASS');
+}
+async function executeWinHttp(bits){
+  const name='winhttp-cancellation-'+bits,exe=tests+'/'+name+'-probe.exe';
+  const r=spawnSync(engine,[exe],{cwd:root,env,encoding:'utf8',timeout:120000,maxBuffer:4*1024*1024});
+  const output=(r.stdout||'')+(r.stderr||'');await fs.writeFile(root+'/'+name+'.log',output,{flag:'wx',mode:0o600});
+  let checks;try{checks=parseWinHttpCancellation(output);}catch{}
+  const ok=r.status===0&&!r.error&&!r.signal&&Number.isSafeInteger(checks);
+  results.push({name,status:r.status,signal:r.signal,checks:checks===undefined?[]:[checks],passed:ok});
   if(!ok)throw Error('Native contract failed: '+name+'; '+root);
   console.log(name+' PASS');
 }
@@ -43,6 +54,10 @@ try{
     const aliases=await runAppmodelAliases({wine:engine,tests,root,bits,run});
     await fs.writeFile(root+'/appmodel-'+bits+'-aliases.log',aliases.output,{flag:'wx',mode:0o600});
     if(aliases.code||aliases.timedOut)throw Error('Package alias controls failed');
+  }
+  for(const bits of [64,32]){
+    await executeWinHttp(bits);
+    await execute('http-native-cancellation-'+bits,path.dirname(tests)+'/win'+bits+'/bin/nexus_http-native-cancellation.exe',[],{},46);
   }
   const folder=root+'/playfab-folder';await fs.mkdir(folder);
   for(const name of ['playfab-folder-probe.exe','xgameruntime.dll','nexus_pgs_native.dll'])await fs.copyFile(tests+'/playfab-folder/'+name,folder+'/'+name,fs.constants.COPYFILE_EXCL);
