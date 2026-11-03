@@ -7,7 +7,7 @@ import {targets} from './target.mjs';
 import {moduleCapabilities} from './module-capabilities.mjs';
 import {buildPackageRegistration} from './package-registration.mjs';
 import {verifyRuntimeDependencies} from './runtime-dependency-sources.mjs';
-export async function assembleRuntime({work,build,redist,source,wine,aux,output,name,inputs,graph,auxiliary,lockHash,target=targets.x86_64}){
+export async function assembleRuntime({work,build,redist,source,wine,aux,output,name,inputs,graph,auxiliary,lockHash,target=targets.x86_64,localBuild=false}){
 const proton={requiresBackendVersion:inputs.requiresBackendVersion};
 await fs.mkdir(output,{recursive:false});
 const runtime=path.join(output,name);
@@ -73,11 +73,12 @@ for(const arch of target.peArchitectures){
   if(!module.subarray(64,96).equals(marker))throw Error('C++ module is not a Wine builtin: '+arch);
   metadata.componentsByArchitecture[arch]={'xgameruntime.dll':sha256(module)};
 }
+if(localBuild)Object.assign(metadata,{localBuild:true,diagnosticOnly:true,promotable:false});
 metadata.realGameTest=false;metadata.stableApproved=false;
 metadata.baseWineSha256=sha256(await fs.readFile(path.join(files,target.bin,'wine.nexus-original')));
 await fs.writeFile(path.join(runtime,'XODUS_NEXUS_PATCH.json'),JSON.stringify(metadata,null,2)+'\n',{flag:'wx'});
 const links=await makeSdkLinksPortable(runtime,build);
-await fs.writeFile(path.join(output,'built.json'),JSON.stringify({schema:1,name,runtime,metadata,inputs,graph,source,prepared:work,aux,links},null,2)+'\n',{flag:'wx'});
+await fs.writeFile(path.join(output,'built.json'),JSON.stringify({schema:1,...(localBuild?{localBuild:true,diagnosticOnly:true,promotable:false}:{}),name,runtime,metadata,inputs,graph,source,prepared:work,aux,links},null,2)+'\n',{flag:'wx'});
 console.log('Built an isolated Experimental candidate. Native validation is still required.');
 
 
