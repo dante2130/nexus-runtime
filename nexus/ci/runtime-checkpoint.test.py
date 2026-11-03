@@ -55,6 +55,10 @@ class CheckpointTests(unittest.TestCase):
         (self.output / 'built.json').write_text(json.dumps(self.built))
         (self.fixtures / 'fixtures.json').write_text(json.dumps({'sourceGraph': self.built['graph']}))
         (self.fixtures / 'probe.exe').write_bytes(b'unchanged fixture')
+        for abi in ['win64', 'win32']:
+            target = self.fixtures / abi / 'bin/nexus_store-context-cancellation.exe'
+            target.parent.mkdir(parents=True)
+            target.write_bytes(('unchanged Store cancellation fixture ' + abi).encode())
         self.checkpoint = self.root / 'checkpoint'
         self.env = patch.dict(os.environ, {'GITHUB_REPOSITORY': 'domsvoboda/nexus-runtime', 'GITHUB_REF': 'refs/heads/main',
                  'GITHUB_SHA': self.sha, 'GITHUB_WORKSPACE': str(self.source), 'RUNNER_TEMP': str(self.temp)})
@@ -90,6 +94,9 @@ class CheckpointTests(unittest.TestCase):
                 self.assertEqual(json.loads((temp / 'nexus-output/built.json').read_text())['source'], str(source))
                 self.assertEqual(subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source), (self.sha+'\n').encode())
                 self.assertEqual((temp / 'nexus-fixtures/probe.exe').read_bytes(), b'unchanged fixture')
+                for abi in ['win64', 'win32']:
+                    self.assertEqual((temp / ('nexus-fixtures/' + abi + '/bin/nexus_store-context-cancellation.exe')).read_bytes(),
+                                     ('unchanged Store cancellation fixture ' + abi).encode())
 
     def test_corrupt_archive_rejected_before_writes(self):
         cp.create(self.output, self.fixtures, self.checkpoint)

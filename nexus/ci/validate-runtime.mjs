@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import {verifyStoreCancellationFixtures,readStoreCancellationResult} from './store-cancellation-coverage.mjs';
 import {verifyHttpCancellationFixtures,assertHttpCancellationCoverage} from './http-cancellation-coverage.mjs';
 import fs from 'node:fs/promises';
 import {hasCompleteHttpCoverage} from './http-coverage.mjs';
@@ -17,6 +18,7 @@ const fixtureProof=await readJson(fixtures+'/fixtures.json');
 if(fixtureProof.sdk!==built.inputs.sdk||JSON.stringify(fixtureProof.sourceGraph)!==JSON.stringify(built.graph))throw Error('Test fixtures do not match the selected SDK/source graph');
 for(const [file,expected]of Object.entries(fixtureProof.hashes))if(await fileHash(fixtures+'/'+file)!==expected)throw Error('Changed test fixture');
 await verifyHttpCancellationFixtures(fixtures,fixtureProof.hashes);
+await verifyStoreCancellationFixtures(fixtures,fixtureProof.hashes);
 // Preserve the exact required SDK notices before the immutable runtime binding.
 for(const name of ['GCC-runtime-copyright','MinGW-runtime-copyright','libxml2-COPYING']){
   const source=project+'/licenses/'+name,target=files+'/share/doc/nexus-runtime/'+name;
@@ -48,7 +50,10 @@ try{
     const dll=files+'/lib/wine/'+arch+'-windows/xgameruntime.dll';
     if(await fileHash(dll)!==built.metadata.componentsByArchitecture[arch]['xgameruntime.dll'])throw Error('Coherent C++ module differs');
     await fs.copyFile(dll,bin+'/xgameruntime.dll',fs.constants.COPYFILE_EXCL);
-    for(const gate of ['component','authentication','user-contracts','store'])await execute(abi+'-'+gate,process.execPath,[scripts+'/test-'+gate+'.mjs',directory,...(gate==='component'?[]:[engine])]);
+    for(const gate of ['component','authentication','user-contracts','store']){
+      await execute(abi+'-'+gate,process.execPath,[scripts+'/test-'+gate+'.mjs',directory,...(gate==='component'?[]:[engine])]);
+      if(gate==='store')await readStoreCancellationResult(directory);
+    }
   }
   await execute('wine-native-contracts',process.execPath,[project+'/ci/wine-contracts.mjs',runtime,fixtures+'/native',work]);
   for(const [name,script,args]of [['http','run-http2-suite.mjs',[runtime,work]],['media','run-media-suite.mjs',[runtime,work+'/media']],['graphics','run-dxvk-suite.mjs',[runtime,work]]]){

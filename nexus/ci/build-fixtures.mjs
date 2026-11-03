@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import {verifyStoreCancellationFixtures} from './store-cancellation-coverage.mjs';
 import {verifyHttpCancellationFixtures} from './http-cancellation-coverage.mjs';
 // This builds synthetic fixtures only. No host-built DLL is a runtime input.
 import fs from 'node:fs/promises';
@@ -73,4 +74,5 @@ async function inventory(directory){for(const d of await fs.readdir(directory,{w
 }}
 for(const directory of [root+'/win64/bin',root+'/win32/bin',native])await inventory(directory);
 if(!arm64)await verifyHttpCancellationFixtures(root,hashes);
+await verifyStoreCancellationFixtures(root,hashes);
 await fs.writeFile(root+'/fixtures.json',JSON.stringify({schema:1,scope:'synthetic test executables only, not distribution components',sdk,sourceGraph:built.graph,plans,hashes},null,2)+'\n',{flag:'wx'});
