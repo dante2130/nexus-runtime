@@ -8,7 +8,7 @@ import {mediaRuntimeArchitectures} from './media-build-plan.mjs';
 export async function verifyAuxiliary(directory,inputs,target=targets.x86_64){
   const bytes=await fs.readFile(path.join(directory,'auxiliary.json')),manifest=JSON.parse(bytes);
   const lockHash=sha256(await fs.readFile(path.join(project,'inputs.lock.json')));
-  if(manifest.inputsSha256!==lockHash&&sha256(bytes)!==inputs.verifiedAuxiliaryManifestSha256)throw Error('Auxiliary producer does not match the checked inputs');
+  if(manifest.inputsSha256!==lockHash)throw Error('Auxiliary producer does not match the checked inputs');
   for(const name of ['url','commit','version'])if(manifest.source?.[name]!==inputs.nghttp2[name])throw Error('Wrong nghttp2 source');
   if((manifest.arch??'x86_64')!==target.name)throw Error('Auxiliary components target another architecture');
   if(target.name==='arm64'){
