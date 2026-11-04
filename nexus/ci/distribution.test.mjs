@@ -10,7 +10,18 @@ import {validateGateResults} from './provenance.mjs';
 import {sourceArchiveArgs} from './source-archive.mjs';
 import {TEST_GROUPS,NATIVE_TEST_FILES,buildPlan} from './source-check-plan.mjs';
 import os from 'node:os';
+import crypto from 'node:crypto';
 const sdk='registry.gitlab.steamos.cloud/proton/steamrt4/sdk/x86_64@sha256:'+'a'.repeat(64);
+const sha256Bytes=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+// Run the exact production streamed inspector over the real archive bytes instead
+// of trusting a member-name listing.
+function inspectSourceArchive(archive,expected){
+  const request={archive,expected:expected.map(([name,bytes])=>({name,sha256:sha256Bytes(bytes)}))};
+  return spawnSync('python3',['-I',path.join(project,'ci','inspect-source-archive.py')],{input:JSON.stringify(request),encoding:'utf8',timeout:120000,maxBuffer:4*1024*1024});
+}
+function writeArchiveFixture(root,entries){
+  for(const [relative,bytes]of Object.entries(entries)){const file=path.join(root,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);}
+}
 test('cache is bounded and namespace depends on immutable SDK, not source revision',()=>{
   const a=cachePlan(sdk,'1'.repeat(40)),b=cachePlan(sdk,'2'.repeat(40)),c=cachePlan(sdk.replace(/a$/,'b'),'1'.repeat(40));
   assert.equal(a.namespace,b.namespace);assert.notEqual(a.key,b.key);assert.equal(a.restorePrefix,b.restorePrefix);assert.notEqual(a.restorePrefix,c.restorePrefix);assert.equal(a.maxSize,'3G');assert.equal(a.compilerCheck,'content');
@@ -154,6 +165,56 @@ test('actual source archive preserves nested source and gitlinks, never credenti
     for(const name of ['source/.gitmodules','source/wine/dlls/xgameruntime/CMakeLists.txt','source/nexus/licenses/GCC-runtime-copyright','nghttp2-src/COPYING','media/ffmpeg-4.4.8.tar.xz','prepared.json'])assert.ok(names.includes(name),name);
     for(const name of ['runtime-dependency-sources/manifest.json','runtime-dependency-sources/codec.orig.tar.xz'])assert.ok(names.includes(name),name);
     assert.ok(!names.some(n=>n.split('/').includes('.git')||n.includes('download.zip')));
+    assert.equal(names[0],'source/','the archive root entry must be source/');
+    assert.ok(!names.includes('.')&&!names.includes('./'),'the archive must not contain a root dot member');
+    assert.ok(!names.some(n=>n.replace(/\/+$/,'').split('/').some(part=>!part||part==='.'||part==='..')),'archive members must be safe');
+    const inspected=inspectSourceArchive(archive,[['source/.gitmodules','public gitlink urls'],['source/wine/dlls/xgameruntime/CMakeLists.txt','cmake source'],['source/nexus/licenses/GCC-runtime-copyright','license']]);
+    assert.equal(inspected.status,0,inspected.stdout+inspected.stderr);
+    assert.deepEqual(JSON.parse(inspected.stdout),{ok:true,members:3,bytes:38});
+  }finally{fs.rmSync(root,{recursive:true});}
+});
+test('legacy source archive recipe is rejected for its root dot entry and the actual recipe passes',()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'nexus-source-archive-legacy-'));
+  try{
+    writeArchiveFixture(root,{'source-input/.gitmodules':'public gitlink urls','source-input/wine/dlls/xgameruntime/CMakeLists.txt':'cmake source','aux/nghttp2-src/COPYING':'nghttp2 license','aux/auxiliary.json':'{}','aux/media/ffmpeg-4.4.8.tar.xz':'pinned source archive','aux/media/media-manifest.json':'{}','work/prepared.json':'{}','work/runtime-dependency-sources/manifest.json':'{}'});
+    const source=root+'/source-input',aux=root+'/aux',work=root+'/work';
+    const actual=sourceArchiveArgs(root+'/actual.tar.xz',source,aux,work,'4.4.8');
+    const rootTransform='--transform=s,^\\.$,source,';
+    assert.equal(actual.filter(arg=>arg===rootTransform).length,1,'the producer must emit exactly one exact-root transform');
+    const legacy=actual.filter(arg=>arg!==rootTransform).map(arg=>arg===root+'/actual.tar.xz'?root+'/legacy.tar.xz':arg);
+    assert.equal(legacy.length,actual.length-1);
+    const legacyPack=spawnSync('tar',legacy,{encoding:'utf8'});assert.equal(legacyPack.status,0,legacyPack.stderr);
+    const legacyList=spawnSync('tar',['-tJf',root+'/legacy.tar.xz'],{encoding:'utf8'});assert.equal(legacyList.status,0,legacyList.stderr);
+    assert.equal(legacyList.stdout.trim().split('\n')[0],'./','the legacy recipe keeps the root dot entry');
+    const expected=[['source/.gitmodules','public gitlink urls'],['source/wine/dlls/xgameruntime/CMakeLists.txt','cmake source']];
+    const legacyInspect=inspectSourceArchive(root+'/legacy.tar.xz',expected);
+    assert.notEqual(legacyInspect.status,0,'the legacy archive must fail the strict inspector');
+    assert.match(legacyInspect.stdout,/unsafe member name in archive: \./);
+    const actualPack=spawnSync('tar',actual,{encoding:'utf8'});assert.equal(actualPack.status,0,actualPack.stderr);
+    const actualInspect=inspectSourceArchive(root+'/actual.tar.xz',expected);
+    assert.equal(actualInspect.status,0,actualInspect.stdout+actualInspect.stderr);
+  }finally{fs.rmSync(root,{recursive:true});}
+});
+test('strict source archive inspector rejects unsafe members and non-regular declared entries',()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'nexus-source-archive-controls-'));
+  try{
+    const expected=[['source/nexus/licenses/GCC-runtime-copyright','license']];
+    fs.mkdirSync(path.join(root,'escape'),{recursive:true});
+    fs.writeFileSync(path.join(root,'escape','escape.txt'),'escape');
+    const unsafeArchive=root+'/unsafe.tar.xz';
+    const unsafePack=spawnSync('tar',['--transform=s,^escape/,../,','-cJf',unsafeArchive,'-C',root,'escape/escape.txt'],{encoding:'utf8'});
+    assert.equal(unsafePack.status,0,unsafePack.stderr);
+    const unsafe=inspectSourceArchive(unsafeArchive,expected);
+    assert.notEqual(unsafe.status,0,'an unsafe archive member must be rejected');
+    assert.match(unsafe.stdout,/unsafe member name in archive: \.\.\/escape\.txt/);
+    fs.mkdirSync(path.join(root,'link'),{recursive:true});
+    fs.symlinkSync('../missing-target',path.join(root,'link','LICENSE'));
+    const linkArchive=root+'/link.tar.xz';
+    const linkPack=spawnSync('tar',['--transform=s,^link/LICENSE$,source/nexus/licenses/GCC-runtime-copyright,','-cJf',linkArchive,'-C',root,'link/LICENSE'],{encoding:'utf8'});
+    assert.equal(linkPack.status,0,linkPack.stderr);
+    const link=inspectSourceArchive(linkArchive,expected);
+    assert.notEqual(link.status,0,'a symlink declared as a source member must be rejected');
+    assert.match(link.stdout,/declared member is not a regular tar entry: source\/nexus\/licenses\/GCC-runtime-copyright/);
   }finally{fs.rmSync(root,{recursive:true});}
 });
 
