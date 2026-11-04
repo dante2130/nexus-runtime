@@ -18,6 +18,22 @@ Source tests require CMake, GNU Make, rsync, GCC and both MinGW architectures.
 The complete build additionally requires the pinned Proton SDK and Docker or
 rootless Podman. Auxiliary native libraries must target glibc 2.35 or older.
 
+Assembly verifies the shared upstream payload after the copy: the Wine engine and
+DXVK/VKD3D-Proton renderers, DXVK-NVAPI, ICU, Intel GDExt, wine-mono, Xalia, the
+OpenXR loader, the non-Steam umu helper, the default prefix and the Nexus
+compatibility modules. A missing payload output or entry-script reference fails
+closed. `node --test nexus/runtime-payload-contract.test.mjs` checks that
+contract on synthetic redistributions.
+
+The same pass verifies the declared source notice inputs before the output
+directory exists and stages only the verified bytes. The shared manifest covers
+the DXVK renderer with its directx, SPIRV-Headers, Vulkan-Headers, dxbc-spirv,
+spirv_headers and libdisplay-info build inputs, plus Intel GDExt, VKD3D,
+VKD3D-Proton and DXVK-NVAPI. When the prepared source graph supplies the module
+pins, a payload `version` stamp that names another commit is rejected; an absent
+or Git-less stamp is recorded as unverifiable and is not proof of source
+identity.
+
 From a clean `main` checkout with all recursive submodules initialized:
 
 ```sh

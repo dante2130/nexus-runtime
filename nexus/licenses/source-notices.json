@@ -1,0 +1,387 @@
+{
+  "schema": 1,
+  "kind": "source-notices",
+  "family": "nexus",
+  "status": "ready",
+  "coverage": [
+    "dxvk",
+    "dxvk-igdext",
+    "vkd3d",
+    "vkd3d-proton",
+    "dxvk-nvapi"
+  ],
+  "modules": [
+    {
+      "path": "dxvk",
+      "commit": "a78a467cadb22bee928904290cf8e7921b121851",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "a5cb1a6ded7d2d7e92d550ba28edd21be2d1d4044662b399887351023e30ce64"
+        }
+      ]
+    },
+    {
+      "path": "dxvk/include/native/directx",
+      "commit": "9df86f2341616ef1888ae59919feaa6d4fad693d",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "COPYING.MinGW-w64.txt",
+          "sha256": "f38e6194bd3bfa1b654f118e5acefe0aead437bbe669eee43957ccc65a7127f1"
+        }
+      ]
+    },
+    {
+      "path": "dxvk/include/spirv",
+      "commit": "04f10f650d514df88b76d25e83db360142c7b174",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613"
+        },
+        {
+          "path": "LICENSES/MIT.txt",
+          "sha256": "6d7c9e9d7d12c8d3753bdb24417b84819ba4d6c2f025c37948113d86dc81eef9"
+        }
+      ],
+      "contextFiles": [
+        {
+          "path": "LICENSES/CC-BY-4.0.txt",
+          "sha256": "d557539df68e771cc1eedcc91d13f70fca930e508d11eedcafa4b15db49e3744"
+        }
+      ]
+    },
+    {
+      "path": "dxvk/include/vulkan",
+      "commit": "6802bb4733b63ed5efd3adb308a6c885ef180ea1",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE.md",
+          "sha256": "95ad366d23fadf701d355bc45fb8b82ae2d700239471d35d41286ac3b08ff903"
+        },
+        {
+          "path": "LICENSES/Apache-2.0.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "LICENSES/MIT.txt",
+          "sha256": "1ca3502222d967f3be5751c55f6b7ee735b5383909c3b501495f54b216dbf227"
+        }
+      ],
+      "contextFiles": [
+        {
+          "path": "REUSE.toml",
+          "sha256": "248d32fb51aa837dfbc64246dc9231a3e462e36295604f3fab2845cc19969edb"
+        }
+      ]
+    },
+    {
+      "path": "dxvk/subprojects/dxbc-spirv",
+      "commit": "ecb8308fe03fcad695a6ebdacbef6e7f61e77484",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "0f8a5e687bea942a30a8e39b9915294fbe44eca866e71307a9b7083ee0e69ad8"
+        }
+      ]
+    },
+    {
+      "path": "dxvk/subprojects/dxbc-spirv/submodules/spirv_headers",
+      "commit": "c8ad050fcb29e42a2f57d9f59e97488f465c436d",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613"
+        },
+        {
+          "path": "LICENSES/MIT.txt",
+          "sha256": "6d7c9e9d7d12c8d3753bdb24417b84819ba4d6c2f025c37948113d86dc81eef9"
+        }
+      ],
+      "contextFiles": [
+        {
+          "path": "LICENSES/CC-BY-4.0.txt",
+          "sha256": "d557539df68e771cc1eedcc91d13f70fca930e508d11eedcafa4b15db49e3744"
+        }
+      ]
+    },
+    {
+      "path": "dxvk/subprojects/libdisplay-info",
+      "commit": "275e6459c7ab1ddd4b125f28d0440716e4888078",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "15b396244e58830c5614b9394f4deccfe684970cd507f299383ab57ad339eedd"
+        }
+      ],
+      "contextFiles": [
+        {
+          "path": "test/data/LICENSE.CC-BY-4.0",
+          "sha256": "4014722237c90b6f8effc35b6e04a47815c03ef14ee24683d6c1dfd0b9b644d0"
+        }
+      ]
+    },
+    {
+      "path": "dxvk-igdext",
+      "commit": "a2aa5a2efc39c299dc95968e15786db0cef62acc",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE.md",
+          "sha256": "3ebe2418eb97fed183ace2b20578ec66da56a826ac4651e6c6ede2070efd946c"
+        },
+        {
+          "path": "dxvk-igdext_third-party-programs.md",
+          "sha256": "8f653b9c8e6363f6e5445c91308c9c0cb4d79402fb4afab6666bfb32aa498da3"
+        },
+        {
+          "path": "d3dext-sdk/include/public/igdext.h",
+          "sha256": "61f34d49c18df7da898a1ea7b5bc32498e8256099ea2cff03d55bbcfc48a593c"
+        }
+      ]
+    },
+    {
+      "path": "vkd3d",
+      "commit": "fed0c3418f815b0bc07533f6fc6f4aa06e8712c3",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "COPYING",
+          "sha256": "1f69abfaeee0131bba28ad72d87683a223743d8c9ee1da113fde10cb082f3c91"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+        },
+        {
+          "path": "AUTHORS",
+          "sha256": "0ce4d5c704e7c3261735a39e6ce8879cc4806c97953e5de61d99b48180b29243"
+        },
+        {
+          "path": "libs/vkd3d-shader/checksum.c",
+          "sha256": "4f44212d7a29417583d3b89728e28c597ade13f883227cf1ed21644252a02a13"
+        }
+      ]
+    },
+    {
+      "path": "vkd3d-proton",
+      "commit": "0bb64c56c8f0dcc11ecc0f6c56e00e4f7bd8d506",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "COPYING",
+          "sha256": "f51ad4bf5a3bd2b5f383fe28150b23d01e6f5d7b620b194150e7c6a620c43c1f"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+        },
+        {
+          "path": "AUTHORS",
+          "sha256": "825ecce7c240aa4824cd80f27640cba19c74f7187b1ecdf8c1a2645ddb4d30c3"
+        },
+        {
+          "path": "include/private/nvShaderExtnEnums.h",
+          "sha256": "9e2532fdc36281fd6923084078ad55fd4474337bf1ee3d9e123335d3b5158165"
+        },
+        {
+          "path": "libs/vkd3d-shader/checksum.c",
+          "sha256": "82c197fad09bff029611054722b7d79fa967d2557c0a41a266c6caeaa25ec699"
+        },
+        {
+          "path": "libs/vkd3d/shaders/cs_gdeflate.comp",
+          "sha256": "f8f0604bfead10174668da01d2bcc26aac3e7d4bf226c381b8d9ee1e2aa70d58"
+        }
+      ]
+    },
+    {
+      "path": "vkd3d-proton/khronos/SPIRV-Headers",
+      "commit": "f88a2d766840fc825af1fc065977953ba1fa4a91",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613"
+        }
+      ]
+    },
+    {
+      "path": "vkd3d-proton/khronos/Vulkan-Headers",
+      "commit": "ee2ec5fd83dafce291024683b50dc89219333076",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE.md",
+          "sha256": "95ad366d23fadf701d355bc45fb8b82ae2d700239471d35d41286ac3b08ff903"
+        },
+        {
+          "path": "LICENSES/Apache-2.0.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "LICENSES/MIT.txt",
+          "sha256": "1ca3502222d967f3be5751c55f6b7ee735b5383909c3b501495f54b216dbf227"
+        }
+      ]
+    },
+    {
+      "path": "vkd3d-proton/subprojects/dxil-spirv",
+      "commit": "8434b0639fb2a48ce13aac08a420ecce5d23df0e",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE.MIT",
+          "sha256": "b3ec61378a66f09835a73f53926d9b5cf79a09c9e2fe8bdd0e39aa5403325e1e"
+        }
+      ]
+    },
+    {
+      "path": "vkd3d-proton/subprojects/dxil-spirv/subprojects/dxbc-spirv",
+      "commit": "8dae2d8573af08378c6059aca3d5987da99d20b5",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "0f8a5e687bea942a30a8e39b9915294fbe44eca866e71307a9b7083ee0e69ad8"
+        }
+      ]
+    },
+    {
+      "path": "vkd3d-proton/subprojects/dxil-spirv/subprojects/dxbc-spirv/submodules/spirv_headers",
+      "commit": "c8ad050fcb29e42a2f57d9f59e97488f465c436d",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613"
+        }
+      ]
+    },
+    {
+      "path": "vkd3d-proton/subprojects/dxil-spirv/third_party/spirv-headers",
+      "commit": "c63848ecf2200425511319fd8bf2c17b751e501e",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613"
+        }
+      ]
+    },
+    {
+      "path": "dxvk-nvapi",
+      "commit": "0f26995d8126617d4d99f62c9571715fc7765da1",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "0f2092e013b5d234835ad2ac04e382fe67eca8810424ba157d527280e062f02c"
+        }
+      ]
+    },
+    {
+      "path": "dxvk-nvapi/external/DirectX-Headers",
+      "commit": "ea2799ce66647c69710a81338e828b19973e0370",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "903df5512f7d02609fed0c780a9b704f5a3eeb6e4d84ebe42a29845c81899a3c"
+        }
+      ]
+    },
+    {
+      "path": "dxvk-nvapi/external/Vulkan-Headers",
+      "commit": "e3b1eec08173d6b825cd3ac88c885a63b621504a",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE.md",
+          "sha256": "95ad366d23fadf701d355bc45fb8b82ae2d700239471d35d41286ac3b08ff903"
+        },
+        {
+          "path": "LICENSES/Apache-2.0.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "LICENSES/MIT.txt",
+          "sha256": "1ca3502222d967f3be5751c55f6b7ee735b5383909c3b501495f54b216dbf227"
+        }
+      ]
+    },
+    {
+      "path": "dxvk-nvapi/external/nvapi",
+      "commit": "87dca625e83fd89a983e19b904e5f3a580da90d2",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "License.txt",
+          "sha256": "bab44777f0f4d0333479ea0be6e24c084464a8cb64b98f1253fcc3df70f6eccf"
+        }
+      ]
+    },
+    {
+      "path": "dxvk-nvapi/external/vkroots",
+      "commit": "ee76e620798612c52fb8dcc32a1058a0a3538930",
+      "distribution": "linked",
+      "status": "ready",
+      "notices": [
+        {
+          "path": "LICENSE",
+          "sha256": "66d083f861a7f030f00a7edd80b616f3d762fed5d0ddc34eb133a9e792e2691d"
+        },
+        {
+          "path": "LICENSES/Apache-2.0.txt",
+          "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+        },
+        {
+          "path": "LICENSES/MIT.txt",
+          "sha256": "382e6eef26b513399da2ea81645449ef887bfbd24231d0d308e591f6465a43d5"
+        },
+        {
+          "path": "LICENSES/LGPL-2.1-or-later.txt",
+          "sha256": "211f1b738d1b864bab2648bee9b55becd39fd2d6aa49c1196e7d87b41db4bc07"
+        }
+      ]
+    }
+  ],
+  "excluded": [
+    {
+      "path": "vkd3d-proton/subprojects/dxil-spirv/third_party/SPIRV-Cross",
+      "decision": "not-built",
+      "reason": "Checked out only because the recursive update of dxil-spirv initializes it; the upstream CMake test and CLI tooling reference it, and the pinned meson build that produces the shipped dll does not."
+    },
+    {
+      "path": "vkd3d-proton/subprojects/dxil-spirv/third_party/SPIRV-Tools",
+      "decision": "not-built",
+      "reason": "Checked out only because the recursive update of dxil-spirv initializes it; the upstream CMake test and CLI tooling reference it, and the pinned meson build that produces the shipped dll does not."
+    }
+  ]
+}
