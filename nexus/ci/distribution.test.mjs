@@ -8,6 +8,7 @@ import {project,repository} from '../inputs.mjs';
 import {cachePlan} from './cache-plan.mjs';
 import {validateGateResults} from './provenance.mjs';
 import {sourceArchiveArgs} from './source-archive.mjs';
+import {TEST_GROUPS,NATIVE_TEST_FILES,buildPlan} from './source-check-plan.mjs';
 import os from 'node:os';
 const sdk='registry.gitlab.steamos.cloud/proton/steamrt4/sdk/x86_64@sha256:'+'a'.repeat(64);
 test('cache is bounded and namespace depends on immutable SDK, not source revision',()=>{
@@ -23,9 +24,27 @@ test('full candidate workflow is main-only, read-only and cannot promote',()=>{
   assert.match(text,/actions\/cache\/restore@v4/);assert.match(text,/actions\/cache\/save@v4/);assert.match(text,/!cancelled\(\)/);assert.match(text,/CCACHE_MAXSIZE: 3G/);assert.match(text,/CCACHE_COMPILERCHECK: content/);
   assert.match(text,/runs-on: ubuntu-22\.04/);assert.match(text,/xvfb-run -a node nexus\/ci\/validate-runtime/);
 });
-test('source checks include distribution policies without packaging or full SDK work',()=>{
+test('source checks run the audited four-group plan with full native coverage and no packaging or full SDK work',async()=>{
   const text=fs.readFileSync(path.join(repository,'.github/workflows/nexus-source.yml'),'utf8');
-  assert.ok(text.includes('nexus/ci/*.test.mjs'));assert.doesNotMatch(text,/build-fixtures|validate-runtime|package-runtime|cache\/save|upload-artifact/);
+  // The audited plan runner is the only test entry point. The old literal glob
+  // must not return and no packaging or full SDK command may be added.
+  assert.match(text,/node nexus\/ci\/source-check-plan\.mjs --mode "\$SOURCE_CHECK_MODE"/);
+  assert.ok(!text.includes('nexus/ci/*.test.mjs'));
+  assert.ok(!/node --test nexus\/\*\.test\.mjs/.test(text));
+  assert.doesNotMatch(text,/build-fixtures|validate-runtime|package-runtime|cache\/save|upload-artifact/);
+  // The plan still enumerates all four reviewed groups, including this ci
+  // directory, in both modes so distribution policy tests keep running.
+  assert.deepEqual([...TEST_GROUPS],['nexus','nexus/tests','nexus/ci','nexus/runtime-compat']);
+  const full=await buildPlan({mode:'full'}),sourceOnly=await buildPlan({mode:'source-only'});
+  for(const group of TEST_GROUPS)assert.ok(full.selected.some(file=>file.startsWith(group+'/')),'full plan enumerates '+group);
+  assert.ok(full.selected.includes('nexus/ci/distribution.test.mjs'));
+  assert.ok(sourceOnly.selected.includes('nexus/ci/distribution.test.mjs'));
+  // Full mode preserves every native fixture; source-only omits exactly those.
+  assert.equal(full.selected.length,full.allFiles.length);
+  for(const file of NATIVE_TEST_FILES)assert.ok(full.selected.includes(file),'full plan retains '+file);
+  assert.deepEqual([...sourceOnly.omittedNative],[...NATIVE_TEST_FILES]);
+  for(const file of NATIVE_TEST_FILES)assert.ok(!sourceOnly.selected.includes(file));
+  assert.equal(sourceOnly.selected.length,full.selected.length-NATIVE_TEST_FILES.length);
 });
 test('Ubuntu 24 validation installs and checks i386 crypto and fonts before compiling',()=>{
   const text=fs.readFileSync(path.join(repository,'.github/workflows/nexus-runtime.yml'),'utf8');
