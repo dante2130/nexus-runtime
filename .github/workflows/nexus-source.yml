@@ -21,12 +21,26 @@ jobs:
           printf '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  %s/actionlint.tar.gz\n' "$RUNNER_TEMP" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/nexus-source.yml .github/workflows/nexus-runtime.yml .github/workflows/nexus-runtime-arm64.yml
+      - name: Select source-check mode
+        id: mode
+        run: node nexus/ci/source-check-plan.mjs --detect-mode >> "$GITHUB_OUTPUT"
       - name: Install bounded source-test tools
+        if: steps.mode.outputs.mode == 'full'
         timeout-minutes: 12
         run: |
           sudo "$(command -v node)" nexus/ci/ubuntu-mirror.mjs
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update
           sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends python3 zstd cmake make rsync gcc g++ gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gcc-mingw-w64-i686 g++-mingw-w64-i686
+      - name: Install bounded noncompiling source-test tools
+        if: steps.mode.outputs.mode == 'source-only'
+        timeout-minutes: 8
+        run: |
+          sudo "$(command -v node)" nexus/ci/ubuntu-mirror.mjs
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 install -y --no-install-recommends python3 make
       - run: node nexus/check-source.mjs
-      - run: node --test nexus/*.test.mjs nexus/tests/*.test.mjs nexus/ci/*.test.mjs nexus/runtime-compat/*.test.mjs
+      - name: Run selected source checks
+        env:
+          SOURCE_CHECK_MODE: ${{ steps.mode.outputs.mode }}
+        run: node nexus/ci/source-check-plan.mjs --mode "$SOURCE_CHECK_MODE"
       - run: git diff --check

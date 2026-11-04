@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+import {verifyXgrFixtures} from './xgr-fixture-coverage.mjs';
+import {verifyHttpCancellationFixtures} from './http-cancellation-coverage.mjs';
 // This builds synthetic fixtures only. No host-built DLL is a runtime input.
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -56,6 +58,7 @@ for(const bits of [64,32]){
   compile('applicationdata-'+bits+'-probe.exe','applicationdata-probe.c',['-Wextra','-Werror','-municode',obj+'/dlls/combase/'+arch+'-windows/libcombase.a',obj+'/dlls/kernelbase/'+arch+'-windows/libkernelbase.a','-lole32'],bits,true);
 }
 for(const bits of [64,32])compile('pending-shutdown-'+bits+'-probe.exe','pending-shutdown-probe.c',['-Wextra','-Werror'],bits);
+for(const bits of [64,32])run(bits===64?'x86_64-w64-mingw32-gcc':'i686-w64-mingw32-gcc',['-O2','-DDECLSPEC_EXPORT=','-DSTANDALONE','-idirafter',wine+'/include',wine+'/dlls/winhttp/tests/cancellation.c','-o',native+'/winhttp-cancellation-'+bits+'-probe.exe','-lwinhttp','-lws2_32']);
 for(const bits of [64,32])compile('crypto-'+bits+'-probe.exe','crypto-probe.c',['-Wextra','-Werror','-lncrypt','-lbcrypt'],bits);
 const folder=native+'/playfab-folder';await fs.mkdir(folder,{recursive:true});
 const definition=(await fs.readFile(project+'/runtime-compat/playfab-save-folder.def','utf8')).replace(/^(PF\w+)(?:=\S+)? @(\d+)$/gm,(_,name,ordinal)=>name+(name==='PFGameSaveFilesInitialize'?'':'=probe_stub')+' @'+ordinal);
@@ -70,4 +73,6 @@ async function inventory(directory){for(const d of await fs.readdir(directory,{w
   const file=path.join(directory,d.name);if(d.isDirectory())await inventory(file);else if(d.isFile()&&/\.(exe|dll)$/.test(d.name))hashes[path.relative(root,file)]=await fileHash(file);
 }}
 for(const directory of [root+'/win64/bin',root+'/win32/bin',native])await inventory(directory);
+if(!arm64)await verifyHttpCancellationFixtures(root,hashes);
+await verifyXgrFixtures(root,hashes);
 await fs.writeFile(root+'/fixtures.json',JSON.stringify({schema:1,scope:'synthetic test executables only, not distribution components',sdk,sourceGraph:built.graph,plans,hashes},null,2)+'\n',{flag:'wx'});

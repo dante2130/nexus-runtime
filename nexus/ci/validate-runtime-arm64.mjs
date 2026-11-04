@@ -3,6 +3,7 @@
 // ARM64 prefix, and the C++ module loaded by aarch64, x86_64 (ARM64EC/FEX) and
 // i386 (WoW64/FEX) processes. Synthetic and offline; no game or account.
 import fs from 'node:fs/promises';
+import {verifyXgrFixtures,readXgrResult} from './xgr-fixture-coverage.mjs';
 import {hasCompleteHttpCoverage} from './http-coverage.mjs';
 import path from 'node:path';
 import {spawnSync,execFileSync} from 'node:child_process';
@@ -22,6 +23,8 @@ await fs.mkdir(work,{recursive:false});await fs.chmod(work,0o700);
 const fixtureProof=await readJson(fixtures+'/fixtures.json');
 if(fixtureProof.sdk!==built.inputs.sdkArm64||JSON.stringify(fixtureProof.sourceGraph)!==JSON.stringify(built.graph))throw Error('Test fixtures do not match the ARM64 SDK/source graph');
 for(const [file,expected]of Object.entries(fixtureProof.hashes))if(await fileHash(fixtures+'/'+file)!==expected)throw Error('Changed test fixture');
+// These remain x86_64/i386 test clients, including on the ARM/FEX route.
+await verifyXgrFixtures(fixtures,fixtureProof.hashes);
 for(const name of ['GCC-runtime-copyright','MinGW-runtime-copyright','libxml2-COPYING']){
   const source=project+'/licenses/'+name,file=files+'/share/doc/nexus-runtime/'+name;
   try{await fs.copyFile(source,file,fs.constants.COPYFILE_EXCL);}catch(e){if(e.code!=='EEXIST'||await fileHash(file)!==await fileHash(source))throw e;}
@@ -135,6 +138,7 @@ try{
     for(const gate of gates){
       const r=spawnSync(process.execPath,[scripts+'/test-'+gate+'.mjs',directory,...(gate==='component'?[]:[engine])],{cwd:work,env:gateEnv,encoding:'utf8',timeout:1800000,maxBuffer:16*1024*1024});
       if(!await record(abi+'-'+gate,{status:r.status,signal:r.signal,error:r.error,stdout:validationProcessOutput(r)},()=>true,{fatal:false}))failedGates.push(abi+'-'+gate);
+      if(gate==='store'||gate==='component')try{await readXgrResult(directory,gate);}catch(error){failedGates.push(abi+'-'+gate+'-coverage');console.error(error.message);}
     }
   }
   // The x86_64 validation's HTTP/2, media and graphics suites. The HTTP/2 and
