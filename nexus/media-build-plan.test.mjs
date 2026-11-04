@@ -46,6 +46,18 @@ test('actual auxiliary admission requires both ABIs, exact hashes and matching E
     }
     const save=()=>write('media/media-manifest.json',JSON.stringify(media));
     await save();await verifyAuxiliary(root,inputs);
+    // A matching historical manifest digest never authorizes another producer.
+    const producer=manifest.inputsSha256,legacyPin=inputs.verifiedAuxiliaryManifestSha256;
+    for(const stale of ['0'.repeat(64),undefined,'changed-producer']){
+      manifest.inputsSha256=stale;
+      const bytes=JSON.stringify(manifest);
+      inputs.verifiedAuxiliaryManifestSha256=hash(bytes);
+      await write('auxiliary.json',bytes);
+      await assert.rejects(verifyAuxiliary(root,inputs),/Auxiliary producer does not match/);
+    }
+    manifest.inputsSha256=producer;inputs.verifiedAuxiliaryManifestSha256=legacyPin;
+    await write('auxiliary.json',JSON.stringify(manifest));
+    await verifyAuxiliary(root,inputs);
     const x86=media.architectures['i386-linux-gnu'];delete media.architectures['i386-linux-gnu'];await save();
     await assert.rejects(verifyAuxiliary(root,inputs),/Incomplete media architectures/);
     media.architectures['i386-linux-gnu']=x86;
