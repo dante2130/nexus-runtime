@@ -1231,7 +1231,6 @@ class CompatData:
                     g_session.dlloverrides["nvapi64"] = "n"
                     g_session.dlloverrides["nvofapi64"] = "n"
                     g_session.dlloverrides["nvapi"] = "n"
-                    g_session.dlloverrides["nvcuda"] = "b"
                 else:
                     nvapi64_dll = self.prefix_dir + "drive_c/windows/system32/nvapi64.dll"
                     nvapi32_dll = self.prefix_dir + "drive_c/windows/syswow64/nvapi.dll"
@@ -2126,7 +2125,7 @@ class Session:
                 s = s + ";" + dll + "=" + setting
             else:
                 s = dll + "=" + setting
-        append_to_env_str(self.env, "WINEDLLOVERRIDES", s, ";")
+        prepend_to_env_str(self.env, "WINEDLLOVERRIDES", s, ";")
 
         if platform.machine() == 'aarch64':
             self.env.setdefault("FEX_DISKCACHE", "1")
