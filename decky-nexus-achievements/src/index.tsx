@@ -30,6 +30,7 @@ interface Settings {
   enabled: boolean;
   duration: number;
   events_path: string;
+  show_secrets?: boolean;
   resolved_path?: string;
 }
 
@@ -69,6 +70,8 @@ interface TitleDetail {
 
 const listTitles = callable<[], { ok: boolean; error?: string; titles: TitleSummary[] }>("list_titles");
 const getTitleAchievements = callable<[string], TitleDetail>("get_title_achievements");
+
+const setShowSecrets = callable<[boolean], boolean>("set_show_secrets");
 
 const ROUTE = "/nexus-achievements";
 
@@ -116,14 +119,17 @@ function Icon({ url }: { url: string }) {
     : <div style={{ width: 56, height: 56, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><FaTrophy size={28} /></div>;
 }
 
-function AchievementRow({ a }: { a: Achievement }) {
-  const hidden = a.secret && !a.unlocked;
+function AchievementRow({ a, reveal }: { a: Achievement; reveal: boolean }) {
+  const hidden = a.secret && !a.unlocked && !reveal;
+  const revealed = a.secret && !a.unlocked && reveal;
+  const name = a.name || "Unnamed achievement";
+  const description = a.description || (revealed ? "Details unavailable for this secret achievement." : "");
   return (
     <Focusable style={{ display: "flex", gap: 12, padding: "8px 0", opacity: a.unlocked ? 1 : 0.65 }}>
       <Icon url={hidden ? "" : a.iconUrl} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: "bold" }}>{hidden ? "Secret achievement" : a.name}</div>
-        <div style={{ fontSize: 13, opacity: 0.8 }}>{hidden ? "Keep playing to reveal this achievement." : a.description}</div>
+        <div style={{ fontWeight: "bold" }}>{hidden ? "Secret achievement" : name}</div>
+        <div style={{ fontSize: 13, opacity: 0.8 }}>{hidden ? "Keep playing to reveal this achievement." : description}</div>
         {!a.unlocked && a.progress !== null && !hidden && (
           <div style={{ marginTop: 4, height: 6, background: "rgba(255,255,255,0.15)", borderRadius: 3 }}>
             <div style={{ width: `${a.progress}%`, height: "100%", background: "#1a9fff", borderRadius: 3 }} />
@@ -138,6 +144,11 @@ function AchievementRow({ a }: { a: Achievement }) {
 }
 
 function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () => void; tick: number }) {
+  const [reveal, setReveal] = useState(false);
+  useEffect(() => {
+    getSettings().then(s => setReveal(!!s.show_secrets)).catch(() => {});
+  }, []);
+  const toggleReveal = (v: boolean) => { setReveal(v); setShowSecrets(v).catch(() => {}); };
   const [detail, setDetail] = useState<TitleDetail | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("name");
@@ -157,7 +168,7 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
       if (filter === "unlocked" && !a.unlocked) return false;
       if (filter === "locked" && a.unlocked) return false;
       if (!q) return true;
-      const hidden = a.secret && !a.unlocked;
+      const hidden = a.secret && !a.unlocked && !reveal;
       return !hidden && (a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q));
     });
     return list.sort((x, y) => {
@@ -165,7 +176,7 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
       if (sort === "date") return (y.unlockedAt ?? 0) - (x.unlockedAt ?? 0) || x.name.localeCompare(y.name);
       return x.name.localeCompare(y.name);
     });
-  }, [detail, filter, sort, query]);
+  }, [detail, filter, sort, query, reveal]);
 
   return (
     <div>
@@ -178,11 +189,13 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
         onChange={o => setFilter(o.data as Filter)} />
       <DropdownItem label="Sort by" rgOptions={SORTS} selectedOption={sort}
         onChange={o => setSort(o.data as Sort)} />
+      <ToggleField label="Show secret achievements" description="Reveal names and descriptions of locked secret achievements."
+        checked={reveal} onChange={toggleReveal} />
       <TextField label="Search" value={query} onChange={e => setQuery(e.target.value)} />
       {!detail && <div style={{ padding: 16 }}>Loading…</div>}
       {detail && !detail.ok && <div style={{ padding: 16 }}>Could not load achievements ({detail.error}).</div>}
       {detail?.ok && rows.length === 0 && <div style={{ padding: 16, opacity: 0.7 }}>No achievements match.</div>}
-      {rows.map(a => <AchievementRow key={a.id || a.name} a={a} />)}
+      {rows.map(a => <AchievementRow key={a.id || a.name} a={a} reveal={reveal} />)}
     </div>
   );
 }
