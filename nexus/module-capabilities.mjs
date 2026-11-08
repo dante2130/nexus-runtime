@@ -3,7 +3,7 @@
 // a launcher preference. Older modules need not have this optional manifest.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-const known = new Set(['xuser-offline-identity-v2', 'xgame-invitations-v1']);
+const known = new Set(['xuser-offline-identity-v2', 'xgame-invitations-v1', 'achievement-notify-v1']);
 export async function moduleCapabilities(directory) {
   let bytes;
   try { bytes = await fs.readFile(path.join(directory, 'nexus-capabilities.json')); }
