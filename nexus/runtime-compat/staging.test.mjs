@@ -31,8 +31,8 @@ before(async () => {
     { env: { ...process.env, LD_LIBRARY_PATH: '', LD_PRELOAD: '' }, stdio: 'pipe' });
 });
 after(async () => { if (root) await fs.rm(root, { recursive: true, force: true }); });
-async function fixture() {
-  const view = await fs.mkdtemp(path.join(root, '.xodus-chain-'));
+async function fixture(prefix = '.xodus-chain-') {
+  const view = await fs.mkdtemp(path.join(root, prefix));
   const exe = path.join(view, 'Entry.exe');
   await fs.writeFile(exe, 'materialized test executable');
   await fs.symlink(sdk, path.join(view, 'PlayFabGameSave.dll'));
@@ -47,6 +47,75 @@ async function fixture() {
     { env: { ...env, ...changes }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe', awaitFd.fd] });
   const awaitFd = await fs.open(sdk, 'r');
   return { view, exe, env, run, close: () => awaitFd.close() };
+}
+async function stagingFixture(prefix = '.xodus-chain-') {
+  const f = await fixture(prefix);
+  const installed = await fs.mkdtemp(path.join(root, 'installed-'));
+  await fs.writeFile(path.join(installed, 'appxmanifest.xml'), 'original manifest fixture');
+  await fs.writeFile(path.join(installed, '.xodus-streaming.msixvc'), 'original signed container fixture');
+  await fs.symlink(path.join(installed, 'appxmanifest.xml'), path.join(f.view, 'appxmanifest.xml'));
+  const compat = path.join(path.dirname(loader), '../share/xodus-nexus/compat/package-registration.exe');
+  await fs.writeFile(compat, 'registrar fixture, executed by mock loader only');
+  return { ...f, installed, compat };
+}
+async function stageLoader() {
+  const original = path.join(path.dirname(loader), 'wine.nexus-original');
+  const bytes = await fs.readFile(original);
+  await fs.writeFile(original, `#!/bin/sh
+case "$1" in
+  */gaming-services-version.exe)
+    test -z "$WINE_DLL_FILE_MAP" && test -z "$WINE_EXE_FILE_MAP" && test -z "$XODUS_SOCKET" && test -z "$XODUS_BRIDGE_KEY" && test -z "$XODUS_BRIDGE_PORT" || exit 72
+    printf 'stage:version\\n'
+    exit 0 ;;
+  */.nexus-package-registration-*.exe)
+    test -z "$WINE_DLL_FILE_MAP" && test -z "$WINE_EXE_FILE_MAP" && test -z "$XODUS_SOCKET" && test -z "$XODUS_BRIDGE_KEY" && test -z "$XODUS_BRIDGE_PORT" || exit 72
+    printf 'stage:registration\\n'
+    exit 0 ;;
+  *)
+    printf 'stage:game\\n'
+    printf 'argv:%s\\n' "$@"
+    printf 'map:%s\\n' "$WINE_DLL_FILE_MAP"
+    printf 'exemap:%s\\n' "$WINE_EXE_FILE_MAP"
+    printf 'overrides:%s\\n' "$WINEDLLOVERRIDES"
+    if [ -e /proc/self/fd/3 ]; then printf 'fd3:present\\n'; else printf 'fd3:missing\\n'; fi
+    exit 23 ;;
+esac
+`, { mode: 0o755 });
+  return () => fs.writeFile(original, bytes);
+}
+async function assertAllStages(argumentFor, prefix) {
+  const f = await stagingFixture(prefix);
+  const restore = await stageLoader();
+  try {
+    const argument = argumentFor(f);
+    const result = f.run({
+      NEXUS_GAMING_SERVICES_VERSION_OVERRIDE: undefined,
+      WINEPREFIX: f.view,
+      XODUS_BRIDGE_KEY: 'synthetic-only',
+    }, [argument, 'arg with space', 'nonASCII-ěščř']);
+    assert.equal(result.status, 23, result.stderr);
+    assert.deepEqual(result.stdout.trimEnd().split('\n'), [
+      'stage:registration',
+      'stage:version',
+      'stage:game',
+      `argv:${argument}`,
+      'argv:arg with space',
+      'argv:nonASCII-ěščř',
+      'map:42:unrelated.dll',
+      'exemap:42:unrelated.exe',
+      'overrides:winhttp=b;playfabgamesave=n;nexus_pgs_native=n',
+      'fd3:present',
+    ]);
+    assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), false);
+    assert.deepEqual(await fs.readFile(path.join(f.view, 'nexus_pgs_native.dll')), await fs.readFile(sdk));
+    assert.equal(await fs.readFile(path.join(f.installed, 'appxmanifest.xml'), 'utf8'), 'original manifest fixture');
+    assert.equal(await fs.readFile(path.join(f.installed, '.xodus-streaming.msixvc'), 'utf8'), 'original signed container fixture');
+    assert.equal((await fs.readdir(f.view)).some(n => n.startsWith('.nexus-package-registration-')), false);
+  } finally {
+    await restore();
+    await fs.rm(f.compat, { force: true });
+    await f.close();
+  }
 }
 test('stages exact SDK, preserves owner bytes, filters only replaced FD, preserves exit code', async () => {
   const f = await fixture();
@@ -238,4 +307,76 @@ test('a conflicting original SDK alias is retained and never selected over a dif
     assert.equal(result.stdout, '');
     assert.deepEqual(await fs.readFile(alias), conflicting);
   } finally { await f.close(); }
+});
+test('Z: host paths run registration, version and PlayFab staging in order and preserve the original argv', async () => {
+  await assertAllStages(f => `Z:${f.exe}`);
+});
+test('Z: backslash and lowercase host paths use the same bootstrap contract', async () => {
+  await assertAllStages(f => `Z:${f.exe.replaceAll('/', '\\')}`);
+  await assertAllStages(f => `z:${f.exe.replaceAll('/', '\\')}`);
+});
+test('absolute host paths keep the existing bootstrap order and arguments', async () => {
+  await assertAllStages(f => f.exe);
+});
+test('Z: host paths with spaces and non-ASCII keep argv and staging intact', async () => {
+  await assertAllStages(f => `Z:${f.exe}`, '.xodus-chain-space ěščř-');
+});
+test('a failed Z: version bootstrap refuses the game with status 70', async () => {
+  const f = await fixture();
+  const original = path.join(path.dirname(loader), 'wine.nexus-original');
+  const bytes = await fs.readFile(original);
+  try {
+    await fs.writeFile(original, `#!/bin/sh
+case "$1" in
+  */gaming-services-version.exe) exit 1 ;;
+  *) printf 'TARGET-MUST-NOT-RUN\\n'; exit 23 ;;
+esac
+`);
+    const result = f.run({ NEXUS_GAMING_SERVICES_VERSION_OVERRIDE: undefined, WINEPREFIX: f.view, NEXUS_PLAYFAB_ADAPTER: '0' }, [`Z:${f.exe}`]);
+    assert.equal(result.status, 70, result.stderr);
+    assert.doesNotMatch(result.stdout, /TARGET-MUST-NOT-RUN/);
+    assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), true);
+  } finally { await fs.writeFile(original, bytes); await f.close(); }
+});
+test('other drives, drive-relative names, missing or nonregular targets, and symlinked or writable views keep the old no-staging behavior', async () => {
+  const f = await fixture();
+  const restore = await stageLoader();
+  const alias = path.join(root, '.xodus-chain-alias-z');
+  await fs.symlink(f.view, alias);
+  await fs.symlink(f.exe, path.join(f.view, 'link.exe'));
+  try {
+    const cases = [
+      `Y:${f.exe}`,
+      'Z:Entry.exe',
+      'Z:./Entry.exe',
+      `Z:${path.join(f.view, 'missing.exe')}`,
+      `Z:${f.view}`,
+      `Z:${path.join(f.view, 'link.exe')}`,
+      `Z:${path.join(alias, 'Entry.exe')}`,
+      '--version',
+    ];
+    for (const argument of cases) {
+      const result = f.run({ NEXUS_GAMING_SERVICES_VERSION_OVERRIDE: '0' }, [argument]);
+      assert.equal(result.status, 23, `${argument}: ${result.stderr}`);
+      const lines = result.stdout.trimEnd().split('\n');
+      assert.equal(lines[0], 'stage:game', argument);
+      assert.deepEqual(lines.slice(1, 2), [`argv:${argument}`], argument);
+      assert.match(lines[2], /^map:42:unrelated\.dll\|3:/, argument);
+      assert.match(lines[3], /^exemap:42:unrelated\.exe\|3:/, argument);
+      assert.equal(lines[4], 'overrides:winhttp=b', argument);
+      assert.equal(lines[5], 'fd3:present', argument);
+      assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), true, argument);
+      await assert.rejects(fs.access(path.join(f.view, 'nexus_pgs_native.dll')));
+    }
+    await fs.chmod(f.view, 0o775);
+    const writable = f.run({ NEXUS_GAMING_SERVICES_VERSION_OVERRIDE: '0' }, [`Z:${f.exe}`]);
+    assert.equal(writable.status, 23, writable.stderr);
+    assert.equal(writable.stdout.trimEnd().split('\n')[0], 'stage:game');
+    assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), true);
+    await assert.rejects(fs.access(path.join(f.view, 'nexus_pgs_native.dll')));
+  } finally {
+    await fs.chmod(f.view, 0o700).catch(() => undefined);
+    await restore();
+    await f.close();
+  }
 });

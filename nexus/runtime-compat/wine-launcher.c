@@ -109,6 +109,30 @@ static int mapped_fd(const char *map, const char *path)
     }
     return -1;
 }
+/* The backend passes an absolute host path. The Play route goes through
+ * Proton, which rewrites that path to Wine's normal Z: mapping of the host
+ * root before the loader sees it. Accept both forms using the same Z: host
+ * contract as mapped_fd, but keep the caller's argument untouched for the
+ * loader. Other drives and drive-relative names are not host paths. */
+static int host_path(const char *argument, char *output, size_t size)
+{
+    if (!argument || !argument[0]) return -1;
+    if (argument[0] == '/') {
+        if (snprintf(output, size, "%s", argument) >= (int)size) return -1;
+        return 0;
+    }
+    if ((argument[0] == 'Z' || argument[0] == 'z') && argument[1] == ':' &&
+        (argument[2] == '/' || argument[2] == '\\')) {
+        size_t used = 0;
+        for (const char *p = argument + 2; *p; ++p) {
+            if (used + 1 >= size) return -1;
+            output[used++] = *p == '\\' ? '/' : *p;
+        }
+        output[used] = 0;
+        return 0;
+    }
+    return -1;
+}
 static int copy_fd(int source, int directory, const char *name)
 {
     char temporary[128];
@@ -338,11 +362,12 @@ int main(int argc, char **argv)
     if (snprintf(loader, sizeof(loader), "%s/wine.nexus-original", binary) >= (int)sizeof(loader) ||
         snprintf(proxyPath, sizeof(proxyPath), "%s/../share/xodus-nexus/compat/PlayFabGameSave.dll", binary) >= (int)sizeof(proxyPath)) return 70;
     struct stat executable;
-    if (argc > 1 && argv[1][0] == '/' && !lstat(argv[1], &executable) && S_ISREG(executable.st_mode) &&
-        getenv("WINE_DLL_FILE_MAP") && (registration(binary, loader, argv[1]) || version_override(binary, loader))) return 70;
-    if (argc > 1 && argv[1][0] == '/' && !lstat(argv[1], &executable) && S_ISREG(executable.st_mode) &&
-        getenv("WINE_DLL_FILE_MAP") && strcmp(getenv("NEXUS_PLAYFAB_ADAPTER") ? getenv("NEXUS_PLAYFAB_ADAPTER") : "", "0")) {
-        char *view = strdup(argv[1]); if (!view) return 70;
+    char host[PATH_MAX];
+    int bootstrap = argc > 1 && !host_path(argv[1], host, sizeof(host)) &&
+        !lstat(host, &executable) && S_ISREG(executable.st_mode) && getenv("WINE_DLL_FILE_MAP");
+    if (bootstrap && (registration(binary, loader, host) || version_override(binary, loader))) return 70;
+    if (bootstrap && strcmp(getenv("NEXUS_PLAYFAB_ADAPTER") ? getenv("NEXUS_PLAYFAB_ADAPTER") : "", "0")) {
+        char *view = strdup(host); if (!view) return 70;
         char *cursor = strrchr(view, '/');
         while (cursor && cursor != view) {
             *cursor = 0;
