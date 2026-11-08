@@ -1,4 +1,4 @@
-name: Nexus runtime candidate
+name: Nexus Runtime candidate
 on:
   push:
     branches: [main]
