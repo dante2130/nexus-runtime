@@ -369,7 +369,8 @@ test('other drives, drive-relative names, missing or nonregular targets, and sym
       assert.match(lines[2], /^map:42:unrelated\.dll\|3:/, argument);
       assert.match(lines[3], /^exemap:42:unrelated\.exe\|3:/, argument);
       assert.equal(lines[4], 'overrides:winhttp=b', argument);
-      assert.equal(lines[5], 'fd3:present', argument);
+      assert.equal(lines[5], 'bridge::::', argument);
+      assert.equal(lines[6], 'fd3:present', argument);
       assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), true, argument);
       await assert.rejects(fs.access(path.join(f.view, 'nexus_pgs_native.dll')));
     }
