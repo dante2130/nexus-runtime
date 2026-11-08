@@ -1,5 +1,6 @@
 import {
   ButtonItem,
+  DialogButton,
   DropdownItem,
   Focusable,
   Navigation,
@@ -119,7 +120,7 @@ function Icon({ url }: { url: string }) {
     : <div style={{ width: 56, height: 56, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><FaTrophy size={28} /></div>;
 }
 
-function AchievementRow({ a, reveal }: { a: Achievement; reveal: boolean }) {
+function AchievementRow({ a, reveal, onToggle }: { a: Achievement; reveal: boolean; onToggle: () => void }) {
   const hidden = a.secret && !a.unlocked && !reveal;
   const revealed = a.secret && !a.unlocked && reveal;
   const name = a.name || "Unnamed achievement";
@@ -139,6 +140,11 @@ function AchievementRow({ a, reveal }: { a: Achievement; reveal: boolean }) {
         {!a.unlocked && a.progress !== null && !hidden && <div style={{ fontSize: 12, opacity: 0.7 }}>{a.progress}%</div>}
       </div>
       <div style={{ fontWeight: "bold", whiteSpace: "nowrap" }}>{hidden ? "? G" : `${a.gamerscore} G`}</div>
+      {a.secret && !a.unlocked && (
+        <DialogButton style={{ width: "auto", minWidth: 0, padding: "4px 12px", alignSelf: "center" }} onClick={onToggle}>
+          {reveal ? "Hide" : "Show"}
+        </DialogButton>
+      )}
     </Focusable>
   );
 }
@@ -148,7 +154,10 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
   useEffect(() => {
     getSettings().then(s => setReveal(!!s.show_secrets)).catch(() => {});
   }, []);
-  const toggleReveal = (v: boolean) => { setReveal(v); setShowSecrets(v).catch(() => {}); };
+  // Per-row overrides are session-only; the global toggle clears them.
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const toggleReveal = (v: boolean) => { setReveal(v); setOverrides({}); setShowSecrets(v).catch(() => {}); };
+  const isRevealed = (a: Achievement) => overrides[a.id] ?? reveal;
   const [detail, setDetail] = useState<TitleDetail | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("name");
@@ -168,7 +177,7 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
       if (filter === "unlocked" && !a.unlocked) return false;
       if (filter === "locked" && a.unlocked) return false;
       if (!q) return true;
-      const hidden = a.secret && !a.unlocked && !reveal;
+      const hidden = a.secret && !a.unlocked && !isRevealed(a);
       return !hidden && (a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q));
     });
     return list.sort((x, y) => {
@@ -176,7 +185,7 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
       if (sort === "date") return (y.unlockedAt ?? 0) - (x.unlockedAt ?? 0) || x.name.localeCompare(y.name);
       return x.name.localeCompare(y.name);
     });
-  }, [detail, filter, sort, query, reveal]);
+  }, [detail, filter, sort, query, reveal, overrides]);
 
   return (
     <div>
@@ -195,7 +204,8 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
       {!detail && <div style={{ padding: 16 }}>Loading…</div>}
       {detail && !detail.ok && <div style={{ padding: 16 }}>Could not load achievements ({detail.error}).</div>}
       {detail?.ok && rows.length === 0 && <div style={{ padding: 16, opacity: 0.7 }}>No achievements match.</div>}
-      {rows.map(a => <AchievementRow key={a.id || a.name} a={a} reveal={reveal} />)}
+      {rows.map(a => <AchievementRow key={a.id || a.name} a={a} reveal={isRevealed(a)}
+        onToggle={() => setOverrides(o => ({ ...o, [a.id]: !isRevealed(a) }))} />)}
     </div>
   );
 }
