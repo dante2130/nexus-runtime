@@ -13,6 +13,32 @@ import main
 
 
 class LanguageTests(unittest.TestCase):
+    def test_rarity_validation(self):
+        for percentage in (0, 0.27, 100):
+            value = {"percentage": percentage, "category": "Rare"}
+            self.assertEqual(language.achievement_rarities({"items": [{"id": "a", "rarity": value}]}), {"a": value})
+        for percentage in (True, -1, 101, float("nan"), float("inf"), "1"):
+            self.assertEqual(language.achievement_rarities({"items": [{"id": "a", "rarity": {"percentage": percentage, "category": "Rare"}}]}), {})
+
+    def test_missing_unknown_and_duplicate_rarity_is_omitted(self):
+        valid = {"id": "a", "rarity": {"percentage": 5, "category": "Common"}}
+        self.assertEqual(language.achievement_rarities({"items": [valid, valid]}), {})
+        self.assertEqual(language.achievement_rarities({"items": [{"id": "a"}]}), {})
+        self.assertEqual(language.achievement_rarities({"items": [{"id": "a", "rarity": {"percentage": 5, "category": "Unset"}}]}), {})
+        self.assertEqual(language.achievement_rarities({"items": None}), {})
+
+    def test_rarity_enriches_original_without_changing_unlocks(self):
+        raw = json.dumps({"schema": 1, "titleId": "42", "items": [
+            {"id": "scid:1", "rarity": {"percentage": 0.27, "category": "Rare"}}]}).encode()
+        runner = AsyncMock(side_effect=[(0, b"--include-mythic"), (0, raw)])
+        with patch.object(language, "backend_command", return_value=(["/backend"], {})), patch.object(language, "run_bounded", runner):
+            result = asyncio.run(language.translate_title(Path("/tmp"), self.detail(), ""))
+        first, second = result["achievements"]
+        self.assertEqual(first["rarity"]["percentage"], 0.27)
+        self.assertFalse(first["unlocked"])
+        self.assertEqual(first["name"], "Original")
+        self.assertNotIn("rarity", second)
+
     def test_helper_backend_uses_deck_user_and_session(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -34,11 +60,14 @@ class LanguageTests(unittest.TestCase):
              "unlocked": False, "secret": True, "gamerscore": 10},
             {"id": "scid:2", "name": "Second", "description": "Keep this"}]}
 
-    def test_original_does_not_run_backend(self):
+    def test_original_keeps_saved_text_and_skips_online_reads_with_older_backend(self):
         detail = self.detail()
-        with patch.object(language, "backend_command") as command:
-            self.assertEqual(asyncio.run(language.translate_title(Path("/tmp"), detail, "")), detail)
-            command.assert_not_called()
+        runner = AsyncMock(return_value=(0, b"--language"))
+        with patch.object(language, "backend_command", return_value=(["/backend"], {})), patch.object(language, "run_bounded", runner):
+            result = asyncio.run(language.translate_title(Path("/tmp"), detail, ""))
+        self.assertEqual(result["achievements"], detail["achievements"])
+        self.assertEqual(result["mythicUnavailable"], "backend")
+        self.assertEqual(runner.await_count, 1)
 
     def test_localized_text_preserves_progress_and_missing_translations(self):
         raw = json.dumps({"schema": 1, "titleId": "42", "items": [

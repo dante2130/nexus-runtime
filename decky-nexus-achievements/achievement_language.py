@@ -1,10 +1,12 @@
 """Read localized achievement text through the signed-in Nexus backend."""
 import asyncio
 import json
+import math
 import os
 import pwd
 import shutil
 from pathlib import Path
+from mythic import parse_mythic
 
 LANGUAGES = {
     "": "Original (saved by Nexus)",
@@ -78,23 +80,82 @@ def localized_text(raw: bytes, title_id: str) -> dict[str, tuple[str, str]]:
     return result
 
 
+def achievement_rarities(data: dict) -> dict:
+    result = {}
+    seen = set()
+    items = data.get("items")
+    if not isinstance(items, list) or len(items) > 500:
+        return result
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("id")
+        if not isinstance(key, str) or not key:
+            continue
+        if key in seen:
+            result.pop(key, None)
+            continue
+        seen.add(key)
+        value = item.get("rarity")
+        if not isinstance(value, dict):
+            continue
+        percentage = value.get("percentage")
+        category = value.get("category")
+        if (type(percentage) in (int, float) and 0 <= percentage <= 100
+                and math.isfinite(percentage) and category in ("Rare", "Common")):
+            result[key] = {"percentage": percentage, "category": category}
+    return result
+
+
 async def translate_title(home: Path, detail: dict, language: str) -> dict:
     if language not in LANGUAGES:
         raise ValueError("Unsupported achievement language.")
-    if not language or not detail.get("ok"):
+    if not detail.get("ok"):
         return detail
     title_id = detail["titleId"]
     if not title_id.isascii() or not title_id.isdecimal() or not 0 < int(title_id) <= 0xffffffff:
-        raise ValueError("Language selection requires a numeric Xbox title ID.")
-    command, env = backend_command(home)
-    code, help_text = await run_bounded([*command, "achievements", "--help"], env)
-    if code or b"--language" not in help_text:
+        if language:
+            raise ValueError("Language selection requires a numeric Xbox title ID.")
+        return detail
+    try:
+        command, env = backend_command(home)
+        code, help_text = await run_bounded([*command, "achievements", "--help"], env)
+    except (OSError, ValueError, asyncio.TimeoutError):
+        if language:
+            raise
+        return {**detail, "mythicUnavailable": "backend"}
+    supports_mythic = not code and b"--include-mythic" in help_text
+    if language and (code or b"--language" not in help_text):
         raise ValueError("Update the Nexus backend to a version supporting achievement languages, or select Original.")
-    code, raw = await run_bounded([*command, "achievements", title_id, "--json", "--language", language], env)
-    if code:
-        raise ValueError("Could not load this language from Xbox. Check your Nexus sign-in and connection.")
-    text = localized_text(raw, title_id)
-    # Keep snapshot progress, unlock state, and secret visibility authoritative.
+    if not language and not supports_mythic:
+        return {**detail, "mythicUnavailable": "backend"}
+    args = [*command, "achievements", title_id, "--json"]
+    if language:
+        args += ["--language", language]
+    if supports_mythic:
+        args += ["--include-mythic"]
+    try:
+        code, raw = await run_bounded(args, env)
+        if code:
+            raise ValueError("Could not load this language from Xbox. Check your Nexus sign-in and connection.")
+        data = json.loads(raw)
+        text = localized_text(raw, title_id) if language else {}
+        group, membership = parse_mythic(data, title_id)
+        rarities = achievement_rarities(data)
+    except (OSError, ValueError, asyncio.TimeoutError):
+        if language:
+            raise
+        return {**detail, "mythicUnavailable": "data"}
     items = [{**item, **({"name": text[item["id"]][0], "description": text[item["id"]][1]}
-                        if item["id"] in text else {})} for item in detail["achievements"]]
-    return {**detail, "achievements": items}
+                        if item["id"] in text else {}),
+              **({"rarity": rarities[item["id"]]} if item["id"] in rarities else {}),
+              **({"baseGame": membership[item["id"]]} if item["id"] in membership else {})}
+             for item in detail["achievements"]]
+    result = {**detail, "achievements": items}
+    if group:
+        result["mythic"] = group
+        account = data.get("account")
+        result["_mythic_account"] = account if isinstance(account, str) and len(account) <= 256 else ""
+    else:
+        result["mythicUnavailable"] = "data" if supports_mythic else "backend"
+    return result

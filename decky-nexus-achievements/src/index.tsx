@@ -13,8 +13,9 @@ import {
 } from "@decky/ui";
 import { addEventListener, callable, definePlugin, removeEventListener, routerHook, toaster } from "@decky/api";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { FaEye, FaEyeSlash, FaPlay, FaTrophy } from "react-icons/fa";
+import { FaAward, FaGem, FaEye, FaEyeSlash, FaPlay, FaTrophy } from "react-icons/fa";
 import { SessionCache } from "./cache";
+import { matchesAchievementSet, type AchievementSet } from "./achievement-filters";
 import { getPluginLanguage, getPluginLanguagePreference, initializeSystemLanguage, setPluginLanguage, subscribeLanguage, translate, translateError, pluginLanguages, pluginLocales, type Message } from "./i18n";
 
 interface AchievementEvent {
@@ -66,12 +67,26 @@ interface Achievement {
   unlockedAt: number | null;
   progress: number | null;
   secret: boolean;
+  baseGame?: boolean;
+  rarity?: { percentage: number; category: "Rare" | "Common" };
 }
+
+interface MythicCompletion {
+  groupId: string;
+  unlocked: boolean;
+  totalCount: number;
+  unlockedCount: number;
+  completedAt: number | null;
+}
+interface MythicEvent { titleId: string; titleName: string; mythic: MythicCompletion; }
+const mythicByTitle = new Map<string, MythicCompletion>();
 
 interface TitleDetail {
   ok: boolean;
   error?: string;
   languageError?: string;
+  mythic?: MythicCompletion;
+  mythicUnavailable?: "backend" | "data";
   titleId?: string;
   titleName?: string;
   achievements: Achievement[];
@@ -79,6 +94,7 @@ interface TitleDetail {
 
 const listTitles = callable<[], { ok: boolean; error?: string; titles: TitleSummary[] }>("list_titles");
 const getTitleAchievements = callable<[string], TitleDetail>("get_title_achievements");
+const getSavedTitleAchievements = callable<[string], TitleDetail>("get_saved_title_achievements");
 const achievementCache = new SessionCache<TitleDetail>();
 const gamesCache = new SessionCache<TitleSummary[]>();
 const achievementCacheKey = (title: TitleSummary) => `${title.titleId}:${title.updatedAt}`;
@@ -162,7 +178,7 @@ const getRunningTitle = callable<[], TitleSummary | null>("get_running_title");
 // The toast runs in the Steam UI, so keep the duration locally.
 let currentDuration = 8000;
 
-function NotificationIcon({ url }: { url?: string }) {
+function NotificationIcon({ url, mythic = false }: { url?: string; mythic?: boolean }) {
   const src = safeIcon(url || "");
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
@@ -182,6 +198,7 @@ function NotificationIcon({ url }: { url?: string }) {
     `}</style>
     {src && !failed
       ? <img src={src} alt="" onError={() => setFailed(true)} style={{ width: 40, height: 40, borderRadius: 4, objectFit: "cover" }} />
+      : mythic ? <FaAward size={36} style={{ width: 36, height: 36, display: "block", color: "#8fdb8f", flexShrink: 0 }} />
       : <FaTrophy size={36} style={{ width: 36, height: 36, display: "block", flexShrink: 0 }} />}
   </div>;
 }
@@ -204,11 +221,50 @@ function showAchievement(event: AchievementEvent) {
   });
 }
 
+function showMythic(event: MythicEvent) {
+  mythicByTitle.set(event.titleId, event.mythic);
+  achievementCache.clear();
+  toaster.toast({
+    className: "nexus-achievement-notification",
+    title: translate(getPluginLanguage(), "Mythic achievement unlocked"),
+    body: translate(getPluginLanguage(), "Unlocked all {total} original achievements in {game}.", { total: event.mythic.totalCount, game: event.titleName }),
+    logo: <NotificationIcon mythic />, duration: currentDuration, playSound: true, sound: 6, showToast: true,
+  });
+}
+
+function MythicBadge() {
+  const { t } = usePluginTranslation();
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#8fdb8f", fontSize: 12 }}>
+    <FaAward aria-hidden="true" />{t("Mythic")}
+  </span>;
+}
+
+function MythicProgress({ detail, mythicOnly, onChange }: { detail: TitleDetail; mythicOnly: boolean; onChange: (enabled: boolean) => void }) {
+  const { t } = usePluginTranslation();
+  const group = detail.mythic;
+  if (!group) return <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>
+    {t(detail.mythicUnavailable === "backend" ? "Update the Nexus achievement backend for Mythic support." : "Mythic progress is unavailable for this game.")}
+  </div>;
+  return <section style={{ padding: 12, marginBottom: 12, borderRadius: 10, background: "rgba(143,219,143,0.08)" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <strong>{t("Mythic achievement")}</strong>{group.unlocked && <MythicBadge />}
+    </div>
+    <div style={{ marginTop: 4 }}>{t("{unlocked}/{total} original achievements", { unlocked: group.unlockedCount, total: group.totalCount })}</div>
+    <div role="progressbar" aria-label={t("Mythic achievement")} aria-valuemin={0} aria-valuemax={group.totalCount} aria-valuenow={group.unlockedCount}
+      style={{ marginTop: 8, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.15)", overflow: "hidden" }}>
+      <div style={{ width: `${group.unlockedCount / group.totalCount * 100}%`, height: "100%", background: "#8fdb8f" }} />
+    </div>
+    <ToggleField label={t("Mythic achievements only")} description={t("Turn off to show all achievements.")}
+      checked={mythicOnly} onChange={onChange} disabled={!detail.achievements.some(a => a.baseGame !== undefined)} />
+  </section>;
+}
+
 type Filter = "all" | "unlocked" | "locked";
 type Sort = "name" | "gamerscore" | "date";
-interface GameViewSettings { filter: Filter; sort: Sort; }
+interface GameViewSettings { filter: Filter; sort: Sort; contentFilter: AchievementSet; }
+const DEFAULT_GAME_VIEW: GameViewSettings = { filter: "all", sort: "date", contentFilter: "all" };
 const getGameViewSettings = callable<[string], GameViewSettings>("get_game_view_settings");
-const setGameViewSettings = callable<[string, Filter, Sort], GameViewSettings>("set_game_view_settings");
+const setGameViewSettings = callable<[string, Filter, Sort, AchievementSet], GameViewSettings>("set_game_view_settings");
 const gameViewCache = new Map<string, GameViewSettings>();
 let rememberGameView = true;
 let gameViewPreferenceGeneration = 0;
@@ -222,7 +278,7 @@ let gameViewSaveQueue = Promise.resolve();
 function saveGameView(titleId: string, value: GameViewSettings): Promise<GameViewSettings> {
   const generation = gameViewPreferenceGeneration;
   const result = gameViewSaveQueue.then(() => rememberGameView && generation === gameViewPreferenceGeneration
-    ? setGameViewSettings(titleId, value.filter, value.sort) : value);
+    ? setGameViewSettings(titleId, value.filter, value.sort, value.contentFilter) : value);
   gameViewSaveQueue = result.then(() => undefined, () => undefined);
   return result;
 }
@@ -237,6 +293,11 @@ const SORTS = [
   { data: "gamerscore", label: "Gamerscore" },
   { data: "date", label: "Unlock date" },
 ];
+const ACHIEVEMENT_SETS = [
+  { data: "all", label: "All" },
+  { data: "original", label: "Original" },
+  { data: "addon", label: "Add-on" },
+];
 
 const safeIcon = (url: string) => (/^https?:\/\//.test(url) ? url : "");
 const fmtDate = (ms: number | null) => (ms ? new Date(ms).toLocaleString(pluginLocales[getPluginLanguage()]) : "");
@@ -248,11 +309,11 @@ function Icon({ url }: { url: string }) {
     : <div style={{ width: 56, height: 56, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><FaTrophy size={28} /></div>;
 }
 
-function GameCover({ url }: { url?: string }) {
+function GameCover({ url, mythic = false }: { url?: string; mythic?: boolean }) {
   const src = safeIcon(url || "");
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
-  return <div style={{ width: 60, height: 80, flexShrink: 0, borderRadius: 4, overflow: "hidden", transform: "translateZ(0)", isolation: "isolate", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+  return <div style={{ width: 60, height: 80, flexShrink: 0, borderRadius: 4, boxShadow: mythic ? "0 0 0 2px #8fdb8f" : undefined, overflow: "hidden", transform: "translateZ(0)", isolation: "isolate", background: "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
     {src && !failed ? <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} style={{ width: "100%", height: "100%", objectFit: "cover", imageRendering: "auto", display: "block" }} /> : <FaTrophy size={24} />}
   </div>;
 }
@@ -269,9 +330,8 @@ function GamerscoreIcon() {
 }
 
 function AchievementRow({ a, reveal, onToggle }: { a: Achievement; reveal: boolean; onToggle: () => void }) {
-  const { t } = usePluginTranslation();
+  const { locale, t } = usePluginTranslation();
   const rowRef = useRef<HTMLDivElement>(null);
-  const [buttonFocused, setButtonFocused] = useState(false);
   const hasRevealButton = a.secret && !a.unlocked;
   const hidden = a.secret && !a.unlocked && !reveal;
   const revealed = a.secret && !a.unlocked && reveal;
@@ -282,6 +342,13 @@ function AchievementRow({ a, reveal, onToggle }: { a: Achievement; reveal: boole
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: "bold" }}>{hidden ? t("Secret achievement") : name}</div>
         <div style={{ fontSize: 13, opacity: 0.8 }}>{hidden ? t("Keep playing to reveal this achievement.") : description}</div>
+        {a.rarity && Number.isFinite(a.rarity.percentage) && a.rarity.percentage >= 0 && a.rarity.percentage <= 100 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.8, marginTop: 4 }}>
+            {a.rarity.category === "Rare" && <><FaGem aria-hidden="true" /><span>{t("Rare")}</span><span>·</span></>}
+            <span>{t("{percentage} of players unlocked", { percentage: new Intl.NumberFormat(pluginLocales[locale], { style: "percent", maximumFractionDigits: 2 }).format(a.rarity.percentage / 100) })}</span>
+          </div>
+        )}
+        {a.baseGame === false && <div style={{ fontSize: 11, opacity: 0.7 }}>{t("Add-on")}</div>}
         {!a.unlocked && a.progress !== null && !hidden && (
           <div style={{ marginTop: 4, height: 6, background: "rgba(255,255,255,0.15)", borderRadius: 3 }}>
             <div style={{ width: `${a.progress}%`, height: "100%", background: "#1a9fff", borderRadius: 3 }} />
@@ -294,13 +361,12 @@ function AchievementRow({ a, reveal, onToggle }: { a: Achievement; reveal: boole
         <div style={{ fontWeight: "bold", whiteSpace: "nowrap" }}>{hidden ? "?" : a.gamerscore} <GamerscoreIcon /></div>
         {hasRevealButton && (
           <DialogButton
+            className="nexus-secret-reveal"
             preferredFocus
             noFocusRing
             onGamepadFocus={() => {
-              setButtonFocused(true);
               rowRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
             }}
-            onGamepadBlur={() => setButtonFocused(false)}
             aria-label={reveal ? t("Hide secret achievement") : t("Show secret achievement")}
             style={{ width: "auto", minWidth: 0, height: 32, padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "center" }}
             onClick={onToggle}>
@@ -312,7 +378,7 @@ function AchievementRow({ a, reveal, onToggle }: { a: Achievement; reveal: boole
   const style = { display: "flex", gap: 12, padding: "8px", borderRadius: 10, opacity: a.unlocked ? 1 : 0.65 };
   // Secret rows expose only the native reveal button as a navigation target.
   if (hasRevealButton) return <div ref={rowRef} style={style}
-    className={`nexus-achievement-row${buttonFocused ? " nexus-achievement-row-focused" : ""}`}>{content}</div>;
+    className="nexus-achievement-row">{content}</div>;
   return <Focusable ref={rowRef} tabIndex={0} noFocusRing className="nexus-achievement-row"
     aria-label={name} onActivate={() => { /* Read-only navigation target. */ }}
     onGamepadFocus={() => rowRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })}
@@ -333,8 +399,8 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
   const toggleReveal = (v: boolean) => { setReveal(v); setOverrides({}); setShowSecrets(v).catch(() => {}); };
   const isRevealed = (a: Achievement) => overrides[a.id] ?? reveal;
   const [detail, setDetail] = useState<TitleDetail | null>(() => achievementCache.peek(achievementCacheKey(title)) ?? null);
-  const [view, setView] = useState<GameViewSettings>(() => (rememberGameView ? gameViewCache.get(title.titleId) : undefined) ?? { filter: "all", sort: "date" });
-  const { filter, sort } = view;
+  const [view, setView] = useState<GameViewSettings>(() => (rememberGameView ? gameViewCache.get(title.titleId) : undefined) ?? DEFAULT_GAME_VIEW);
+  const { filter, sort, contentFilter } = view;
   const [viewError, setViewError] = useState<Message | null>(null);
   const viewRevision = useRef(0);
   const viewMounted = useRef(false);
@@ -368,19 +434,36 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
   useEffect(() => {
     let live = true;
     const key = achievementCacheKey(title);
+    if (!achievementCache.peek(key)) {
+      // Never make the first local list wait for an optional Xbox metadata read.
+      getSavedTitleAchievements(title.titleId).then(saved => {
+        if (live && saved.ok) setDetail(previous => previous?.ok ? previous : saved);
+      }).catch(() => {});
+    }
     achievementCache.load(key, async () => {
       const result = await getTitleAchievements(title.titleId);
       if (!result.ok) throw new Error(result.error || "Failed to load");
       return result;
     }, 60_000, result => !result.languageError)
-      .then(d => { if (live) setDetail(d); })
+      .then(d => {
+        if (d.mythic) mythicByTitle.set(title.titleId, d.mythic);
+        if (live) setDetail(d);
+      })
       .catch(() => { if (live) setDetail(previous => previous?.ok ? previous : { ok: false, error: "Failed to load", achievements: [] }); });
     return () => { live = false; };
   }, [title.titleId, title.updatedAt, tick, languageRevision]);
 
+  useEffect(() => {
+    const listener = addEventListener<[MythicEvent]>("mythic", event => {
+      if (event.titleId === title.titleId) setDetail(previous => previous ? { ...previous, mythic: event.mythic } : previous);
+    });
+    return () => removeEventListener("mythic", listener);
+  }, [title.titleId]);
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = (detail?.achievements ?? []).filter(a => {
+      if (!matchesAchievementSet(a, contentFilter)) return false;
       if (filter === "unlocked" && !a.unlocked) return false;
       if (filter === "locked" && a.unlocked) return false;
       if (!q) return true;
@@ -392,7 +475,8 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
       if (sort === "date") return (y.unlockedAt ?? 0) - (x.unlockedAt ?? 0) || x.name.localeCompare(y.name);
       return x.name.localeCompare(y.name);
     });
-  }, [detail, filter, sort, query, reveal, overrides]);
+  }, [detail, filter, sort, query, reveal, overrides, contentFilter]);
+  const membershipPending = contentFilter !== "all" && detail?.ok && !detail.mythic && !detail.mythicUnavailable;
 
   const groups: { label: "Unlocked" | "Locked" | null; items: Achievement[] }[] = grouped
     ? [{ label: "Unlocked", items: rows.filter(a => a.unlocked) }, { label: "Locked", items: rows.filter(a => !a.unlocked) }]
@@ -407,26 +491,43 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
           box-shadow: none !important;
           animation: none !important;
         }
-        .nexus-achievement-row-focused {
+        :is(.nexus-achievement-row-focused, .nexus-achievement-row:focus-within,
+          .nexus-achievement-row:has(.nexus-secret-reveal:is(.gpfocus, :focus, :active))) {
           background: #fff;
           color: #0e141b;
           opacity: 1 !important;
           border-radius: 10px;
         }
-        .nexus-achievement-row-focused .nexus-gamerscore-icon circle {
+        :is(.nexus-achievement-row-focused, .nexus-achievement-row:focus-within,
+          .nexus-achievement-row:has(.nexus-secret-reveal:is(.gpfocus, :focus, :active))) .nexus-gamerscore-icon circle {
           fill: #0e141b !important;
         }
-        .nexus-achievement-row-focused .nexus-gamerscore-icon path {
+        :is(.nexus-achievement-row-focused, .nexus-achievement-row:focus-within,
+          .nexus-achievement-row:has(.nexus-secret-reveal:is(.gpfocus, :focus, :active))) .nexus-gamerscore-icon path {
           stroke: #fff !important;
+        }
+        .nexus-achievement-row .nexus-secret-reveal {
+          background: #3d4450 !important;
+          color: #fff !important;
+        }
+        .nexus-achievement-row .nexus-secret-reveal:is(.gpfocus, :focus, :hover, :active) {
+          background: #fff !important;
+          color: #0e141b !important;
+        }
+        .nexus-secret-reveal svg {
+          color: inherit;
+          fill: currentColor;
         }
       `}</style>
       <ButtonItem layout="below" onClick={onBack}>{t("← All titles")}</ButtonItem>
-      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "8px 0" }}><GameCover url={title.coverUrl} /><h2>{title.titleName}</h2></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "8px 0" }}><GameCover url={title.coverUrl} mythic={detail?.mythic?.unlocked} /><h2>{title.titleName}</h2></div>
       <div style={{ opacity: 0.8, marginBottom: 8 }}>
         {t("{unlocked}/{total} unlocked", { unlocked: title.unlocked, total: title.total })} • {title.gamerscore}/{title.gamerscoreTotal} <GamerscoreIcon />
       </div>
       <DropdownItem label={t("Filter")} rgOptions={FILTERS.map(option => ({ ...option, label: t(option.label as Message) }))} selectedOption={filter}
         onChange={o => updateView({ filter: o.data as Filter })} />
+      <DropdownItem label={t("Achievement set")} rgOptions={ACHIEVEMENT_SETS.map(option => ({ ...option, label: t(option.label as Message) }))}
+        selectedOption={contentFilter} onChange={option => updateView({ contentFilter: option.data as AchievementSet })} />
       <DropdownItem label={t("Sort by")} rgOptions={SORTS.map(option => ({ ...option, label: t(option.label as Message) }))} selectedOption={sort}
         onChange={o => updateView({ sort: o.data as Sort })} />
       {viewError && <div role="alert">{t(viewError)}</div>}
@@ -443,10 +544,13 @@ function TitleView({ title, onBack, tick }: { title: TitleSummary; onBack: () =>
       <div style={{ marginTop: 12 }}>
         <TextField label={t("Search")} value={query} onChange={e => setQuery(e.target.value)} />
       </div>
+      {detail?.ok && (detail.mythic || detail.mythicUnavailable) && <div style={{ marginTop: 12 }}><MythicProgress detail={detail}
+        mythicOnly={contentFilter === "original"} onChange={enabled => updateView({ contentFilter: enabled ? "original" : "all" })} /></div>}
       {!detail && <div style={{ padding: 16 }}>{t("Loading…")}</div>}
       {detail && !detail.ok && <div style={{ padding: 16 }}>{t("Could not load achievements ({error}).", { error: translateError(locale, detail.error) })}</div>}
       {detail?.languageError && <div role="alert" style={{ padding: 16 }}>{t("Showing original achievement text. {error}", { error: translateError(locale, detail.languageError) })}</div>}
-      {detail?.ok && rows.length === 0 && <div style={{ padding: 16, opacity: 0.7 }}>{t("No achievements match.")}</div>}
+      {membershipPending && <div role="status" style={{ padding: 16, opacity: 0.7 }}>{t("Loading achievement set…")}</div>}
+      {detail?.ok && !membershipPending && rows.length === 0 && <div style={{ padding: 16, opacity: 0.7 }}>{t("No achievements match.")}</div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {groups.filter(group => group.items.length > 0).map(group => <div key={group.label || "all"}>
           {group.label && <h3 style={{ margin: "12px 0 8px" }}>{t(group.label)} ({group.items.length})</h3>}
@@ -478,12 +582,14 @@ function TitleRow({ title, onSelect, playing = false, showPlayingText = false, f
   title: TitleSummary; onSelect: (titleId: string) => void; playing?: boolean; showPlayingText?: boolean; flushCover?: boolean;
 }) {
   const { t } = usePluginTranslation();
+  const mythic = mythicByTitle.get(title.titleId);
   const content = (
     <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left" }}>
-      <GameCover url={title.coverUrl} />
+      <GameCover url={title.coverUrl} mythic={mythic?.unlocked} />
       <div style={{ flex: 1, minWidth: 0, whiteSpace: "normal", paddingRight: flushCover ? 12 : 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ flex: 1, minWidth: 0 }}>{title.titleName}</span>
+          {mythic?.unlocked && <MythicBadge />}
           {playing && <span aria-label={t("Now playing")} style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, color: "#8fdb8f", fontSize: 12, whiteSpace: "nowrap" }}>
             <FaPlay aria-hidden="true" />{showPlayingText && t("Now playing")}
           </span>}
@@ -635,6 +741,7 @@ export default definePlugin(() => {
   getSettings().then(s => { currentDuration = s.duration; setPluginLanguage(s.plugin_language || "system"); applyRememberGameView(s.remember_game_view_settings ?? true); }).catch(() => {});
   routerHook.addRoute(ROUTE, AchievementsPage, { exact: true });
   const listener = addEventListener<[AchievementEvent]>("achievement", showAchievement);
+  const mythicListener = addEventListener<[MythicEvent]>("mythic", showMythic);
 
   return {
     name: "Nexus Achievements",
@@ -645,7 +752,9 @@ export default definePlugin(() => {
       achievementCache.clear();
       gamesCache.clear();
       gameViewCache.clear();
+      mythicByTitle.clear();
       removeEventListener("achievement", listener);
+      removeEventListener("mythic", mythicListener);
       routerHook.removeRoute(ROUTE);
     },
   };
