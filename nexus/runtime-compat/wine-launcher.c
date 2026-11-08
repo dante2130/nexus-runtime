@@ -260,6 +260,7 @@ static int version_override(const char *binary, const char *loader)
         /* Bootstrap is a normal runtime executable, not a mapped game. */
         unsetenv("WINE_DLL_FILE_MAP"); unsetenv("WINE_EXE_FILE_MAP");
         unsetenv("XODUS_SOCKET"); unsetenv("XODUS_BRIDGE_KEY"); unsetenv("XODUS_BRIDGE_PORT");
+        unsetenv("NEXUS_INVITE_PORT"); unsetenv("NEXUS_INVITE_KEY");
         execl(loader, loader, helper, "apply", (char *)NULL);
         _exit(70);
     }
@@ -328,6 +329,7 @@ static int registration(const char *binary, const char *loader, const char *targ
                                     else if (!child) {
                                         unsetenv("WINE_DLL_FILE_MAP"); unsetenv("WINE_EXE_FILE_MAP");
                                         unsetenv("XODUS_SOCKET"); unsetenv("XODUS_BRIDGE_KEY"); unsetenv("XODUS_BRIDGE_PORT");
+        unsetenv("NEXUS_INVITE_PORT"); unsetenv("NEXUS_INVITE_KEY");
                                         execl(loader, loader, helper, "register-normal", rootNt, containerNt, (char *)NULL);
                                         _exit(70);
                                     } else {

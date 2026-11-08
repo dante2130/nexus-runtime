@@ -64,11 +64,11 @@ async function stageLoader() {
   await fs.writeFile(original, `#!/bin/sh
 case "$1" in
   */gaming-services-version.exe)
-    test -z "$WINE_DLL_FILE_MAP" && test -z "$WINE_EXE_FILE_MAP" && test -z "$XODUS_SOCKET" && test -z "$XODUS_BRIDGE_KEY" && test -z "$XODUS_BRIDGE_PORT" || exit 72
+    test -z "$WINE_DLL_FILE_MAP" && test -z "$WINE_EXE_FILE_MAP" && test -z "$XODUS_SOCKET" && test -z "$XODUS_BRIDGE_KEY" && test -z "$XODUS_BRIDGE_PORT" && test -z "$NEXUS_INVITE_PORT" && test -z "$NEXUS_INVITE_KEY" || exit 72
     printf 'stage:version\\n'
     exit 0 ;;
   */.nexus-package-registration-*.exe)
-    test -z "$WINE_DLL_FILE_MAP" && test -z "$WINE_EXE_FILE_MAP" && test -z "$XODUS_SOCKET" && test -z "$XODUS_BRIDGE_KEY" && test -z "$XODUS_BRIDGE_PORT" || exit 72
+    test -z "$WINE_DLL_FILE_MAP" && test -z "$WINE_EXE_FILE_MAP" && test -z "$XODUS_SOCKET" && test -z "$XODUS_BRIDGE_KEY" && test -z "$XODUS_BRIDGE_PORT" && test -z "$NEXUS_INVITE_PORT" && test -z "$NEXUS_INVITE_KEY" || exit 72
     printf 'stage:registration\\n'
     exit 0 ;;
   *)
@@ -77,6 +77,7 @@ case "$1" in
     printf 'map:%s\\n' "$WINE_DLL_FILE_MAP"
     printf 'exemap:%s\\n' "$WINE_EXE_FILE_MAP"
     printf 'overrides:%s\\n' "$WINEDLLOVERRIDES"
+    printf 'bridge:%s:%s:%s:%s\\n' "$NEXUS_INVITE_PORT" "$NEXUS_INVITE_KEY" "$XODUS_BRIDGE_PORT" "$XODUS_BRIDGE_KEY"
     if [ -e /proc/self/fd/3 ]; then printf 'fd3:present\\n'; else printf 'fd3:missing\\n'; fi
     exit 23 ;;
 esac
@@ -92,6 +93,9 @@ async function assertAllStages(argumentFor, prefix) {
       NEXUS_GAMING_SERVICES_VERSION_OVERRIDE: undefined,
       WINEPREFIX: f.view,
       XODUS_BRIDGE_KEY: 'synthetic-only',
+      XODUS_BRIDGE_PORT: '4001',
+      NEXUS_INVITE_PORT: '4002',
+      NEXUS_INVITE_KEY: 'invite-synthetic',
     }, [argument, 'arg with space', 'nonASCII-ěščř']);
     assert.equal(result.status, 23, result.stderr);
     assert.deepEqual(result.stdout.trimEnd().split('\n'), [
@@ -104,6 +108,7 @@ async function assertAllStages(argumentFor, prefix) {
       'map:42:unrelated.dll',
       'exemap:42:unrelated.exe',
       'overrides:winhttp=b;playfabgamesave=n;nexus_pgs_native=n',
+      'bridge:4002:invite-synthetic:4001:synthetic-only',
       'fd3:present',
     ]);
     assert.equal((await fs.lstat(path.join(f.view, 'PlayFabGameSave.dll'))).isSymbolicLink(), false);
