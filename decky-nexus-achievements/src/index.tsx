@@ -13,7 +13,7 @@ import {
 } from "@decky/ui";
 import { addEventListener, callable, definePlugin, removeEventListener, routerHook, toaster } from "@decky/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FaTrophy } from "react-icons/fa";
+import { FaEye, FaEyeSlash, FaTrophy } from "react-icons/fa";
 
 interface AchievementEvent {
   type: "achievement";
@@ -139,12 +139,17 @@ function AchievementRow({ a, reveal, onToggle }: { a: Achievement; reveal: boole
         {a.unlocked && a.unlockedAt && <div style={{ fontSize: 12, opacity: 0.7 }}>Unlocked {fmtDate(a.unlockedAt)}</div>}
         {!a.unlocked && a.progress !== null && !hidden && <div style={{ fontSize: 12, opacity: 0.7 }}>{a.progress}%</div>}
       </div>
-      <div style={{ fontWeight: "bold", whiteSpace: "nowrap" }}>{hidden ? "? G" : `${a.gamerscore} G`}</div>
-      {a.secret && !a.unlocked && (
-        <DialogButton style={{ width: "auto", minWidth: 0, padding: "4px 12px", alignSelf: "center" }} onClick={onToggle}>
-          {reveal ? "Hide" : "Show"}
-        </DialogButton>
-      )}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+        <div style={{ fontWeight: "bold", whiteSpace: "nowrap" }}>{hidden ? "? G" : `${a.gamerscore} G`}</div>
+        {a.secret && !a.unlocked && (
+          <DialogButton
+            aria-label={reveal ? "Hide secret achievement" : "Show secret achievement"}
+            style={{ width: "auto", minWidth: 0, height: 32, padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={onToggle}>
+            {reveal ? <FaEyeSlash /> : <FaEye />}
+          </DialogButton>
+        )}
+      </div>
     </Focusable>
   );
 }
