@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {project,readJson,sha256} from './inputs.mjs';
+import {writeFamilyManifest} from './family-manifest.mjs';
 import {copySdkRedistribution,makeSdkLinksPortable} from './runtime-copy.mjs';
 import {targets} from './target.mjs';
 import {moduleCapabilities} from './module-capabilities.mjs';
@@ -89,7 +90,10 @@ const links=await makeSdkLinksPortable(runtime,build);
 const payloadContract=await verifyRuntimePayload(runtime,{family:inputs.variant?.family??'nexus',arch:target.name,pins:new Map(noticeModuleInventory(graph).map(({path:modulePath,commit})=>[modulePath,commit]))});
 metadata.payloadContract=payloadContract;
 await fs.writeFile(path.join(runtime,'XODUS_NEXUS_PATCH.json'),JSON.stringify(metadata,null,2)+'\n',{flag:'wx'});
-await fs.writeFile(path.join(output,'built.json'),JSON.stringify({schema:1,...(localBuild?{localBuild:true,diagnosticOnly:true,promotable:false}:{}),name,runtime,metadata,inputs,graph,source,prepared:work,aux,links,payloadContract},null,2)+'\n',{flag:'wx'});
+/* Managed family receipts are x64-only. The native ARM64 build remains the
+ * legacy experimental path and must not emit an x64 managed manifest. */
+const familyReceipt=target.name==='x86_64'?await writeFamilyManifest(runtime,{family:'nexus',sourceRepository:'domsvoboda/nexus-runtime',sourceCommit:graph.proton,sourceLockSha256:lockHash}):undefined;
+await fs.writeFile(path.join(output,'built.json'),JSON.stringify({schema:1,...(localBuild?{localBuild:true,diagnosticOnly:true,promotable:false}:{}),name,runtime,metadata,inputs,graph,source,prepared:work,aux,links,payloadContract,familyReceipt},null,2)+'\n',{flag:'wx'});
 console.log('Built an isolated Experimental candidate. Native validation is still required.');
 
 
