@@ -9,6 +9,7 @@ import {moduleCapabilities} from './module-capabilities.mjs';
 import {buildPackageRegistration} from './package-registration.mjs';
 import {verifyRuntimeDependencies} from './runtime-dependency-sources.mjs';
 import {noticeModuleInventory,verifySourceNotices,stageSourceNotices} from './source-notices.mjs';
+import {stageSdkNotices,sdkNoticeNames} from './sdk-notices.mjs';
 import {verifyRuntimePayload} from './runtime-payload-contract.mjs';
 export async function assembleRuntime({work,build,redist,source,wine,aux,output,name,inputs,graph,auxiliary,lockHash,target=targets.x86_64,localBuild=false}){
 const proton={requiresBackendVersion:inputs.requiresBackendVersion};
@@ -16,7 +17,7 @@ const media=await readJson(path.join(aux,'media/media-manifest.json'));
 const noticeSources=[['runtime-compat-LICENSE',path.join(project,'LICENSE')],['NOTICE',path.join(project,'NOTICE')],['nghttp2-LICENSE',path.join(aux,'components/nghttp2-LICENSE')],['Wine-LICENSE',path.join(wine,'COPYING.LIB')],['TomCrypt-LICENSE',path.join(wine,'libs/tomcrypt/LICENSE')],['xgameruntime-LICENSE',path.join(wine,'dlls/xgameruntime/LICENSE')],['FFmpeg-COPYING.LGPLv2.1',path.join(aux,'media/ffmpeg-'+media.version+'/COPYING.LGPLv2.1')]];
 // Verify every source notice input before the output directory exists, then
 // stage only the bytes that were already read and hashed here.
-const sourceNotices=await verifySourceNotices({project,sourceRoot:source,family:'nexus',inventory:noticeModuleInventory(graph),reservedNames:['FEX-LICENSE',...noticeSources.map(([noticeName])=>noticeName)]});
+const sourceNotices=await verifySourceNotices({project,sourceRoot:source,family:'nexus',inventory:noticeModuleInventory(graph),reservedNames:['FEX-LICENSE',...noticeSources.map(([noticeName])=>noticeName),...sdkNoticeNames]});
 await fs.mkdir(output,{recursive:false});
 const runtime=path.join(output,name);
 await copySdkRedistribution(redist,runtime);
@@ -64,6 +65,7 @@ const notices=path.join(files,'share/doc/nexus-runtime');await fs.mkdir(notices,
 await fs.copyFile(path.join(source,'FEX/LICENSE'),path.join(notices,'FEX-LICENSE'),fs.constants.COPYFILE_EXCL);
 for(const [noticeName,sourceFile] of noticeSources)await fs.copyFile(sourceFile,path.join(notices,noticeName));
 await stageSourceNotices(notices,sourceNotices.notices);
+await stageSdkNotices(runtime,project);
 const metadata={schema:1,status:'experimental',description:'Independent Nexus runtime built from pinned official Proton Experimental sources.',baseProtonCommit:inputs.upstream.proton,patchState:graph.proton,sourceLockSha256:lockHash,requiresBackendVersion:proton.requiresBackendVersion,components,runtimeCompatibility:auxiliary.compatibility,features:['cloud-saves-pr28','xodus-tcp-bridge-v1','package-locale','xuser-contract-v1','xuser-windows-account-metadata-v1','wine-winhttp-http2-v1','nghttp2-v1','winrt-json-v1','xasync-provider-contract-v1','xtaskqueue-lifecycle-v1','playfab-package-save-folder-v1','xstore-entitlements-v1','xstore-durable-license-v1','xstore-related-discovery-v1','xpackage-content-v1','xstore-package-license-v1','hlsl-state-keywords-v1','appmodel-package-identity-v1','appstate-registration-v1','appconstrained-registration-v1','xtaskqueue-repeat-termination-v1','xgame-relaunch-current-user-v1','dxvk-constant-compare-v1'].filter(feature=>target.primaryPe==='x86_64'||feature!=='hlsl-state-keywords-v1')};
 metadata.sourceGraph=graph;
 metadata.packageRegistration={schema:1,sha256:registrationSha256,provider:'WineVerifiedXvd-v1'};

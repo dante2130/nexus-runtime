@@ -5,7 +5,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {writeFamilyManifest} from './family-manifest.mjs';
 import {project} from './inputs.mjs';
-import {treeHash} from './ci/provenance.mjs';
+import {fileHash,treeHash} from './ci/provenance.mjs';
+import {stageSdkNotices,sdkNoticeNames} from './sdk-notices.mjs';
 const identity={family:'nexus',sourceRepository:'domsvoboda/nexus-runtime',sourceCommit:'a'.repeat(40),sourceLockSha256:'b'.repeat(64)};
 async function fixture(fn){
  const root=await fs.mkdtemp(path.join(project,'../.family-fixture-'));
@@ -28,6 +29,19 @@ test('family manifest inventories actual payload and exact template mapping with
  await assert.rejects(fs.access(path.join(root,'current.json')));
  await assert.rejects(writeFamilyManifest(root,identity),/already exists/);
 }));
+test('staged SDK notices are inventoried before the managed family manifest',()=>fixture(async root=>{
+ await stageSdkNotices(root,project);
+ await assert.rejects(fs.access(path.join(root,'nexus-family.json')));
+ const receipt=await writeFamilyManifest(root,identity),written=JSON.parse(await fs.readFile(path.join(root,'nexus-family.json'),'utf8'));
+ assert.equal(written.buildId,receipt.buildId);
+ for(const name of sdkNoticeNames){
+  const relative='files/share/doc/nexus-runtime/'+name;
+  assert.equal(written.files[relative],await fileHash(path.join(project,'licenses',name)));
+ }
+ const source=await fs.readFile(new URL('./assemble-runtime.mjs',import.meta.url),'utf8');
+ assert.ok(source.indexOf('await stageSdkNotices(runtime,project);') < source.indexOf('writeFamilyManifest('));
+}));
+
 test('manifest creation rejects unrelated external links and missing launch components',()=>fixture(async root=>{
  await fs.symlink('/',path.join(root,'escape'));
  await assert.rejects(writeFamilyManifest(root,identity),/External/);
