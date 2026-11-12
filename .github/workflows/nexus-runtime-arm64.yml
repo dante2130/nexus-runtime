@@ -1,4 +1,4 @@
-name: Nexus runtime ARM64 candidate (Experimental)
+name: Nexus Runtime ARM64 candidate (Experimental)
 on:
   push:
     branches: [main]

@@ -1,8 +1,8 @@
-Nexus runtime
+Nexus Runtime
 -------------
 
-This fork is an independent, unofficial integration for Xodus Nexus, not an
-official Valve or Xodus distribution. See [Nexus build instructions](nexus/README.md)
+This fork is an independent, unofficial integration for Nexus Launcher, not an
+official Valve or Xodus distribution. See [Nexus Runtime build instructions](nexus/README.md)
 for the pinned three-fork build and Experimental limitations.
 
 Nexus Achievements (Decky)

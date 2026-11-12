@@ -1,4 +1,4 @@
-# Nexus runtime build
+# Nexus Runtime build
 
 This is an independent, unofficial integration of Proton Experimental, Wine and
 the C++ XGameRuntime. It is not an official Valve or Xodus distribution.
